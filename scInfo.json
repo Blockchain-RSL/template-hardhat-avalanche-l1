@@ -1,1 +1,7 @@
-{"customERC20Address":"0x803A584dde9226d21C11123E7dE4DC820DadeF88","hlcAddress":"0x232ec4Fd7c90D155234daC127A3F2510F99C0b35","customSecurityAssetAddress":"0x2eeE061b1A621dF92e468a9ec31240491d413360","restrictionsAddress":"0x104E0a8C590F292d0C8bE0D33102e359b9a4107A","whitelistedAddresses":["0x8193E1f855593aC6305D21b744ec708aaF26d202","0x627306090abaB3A6e1400e9345bC60c78a8BEf57","0x232ec4Fd7c90D155234daC127A3F2510F99C0b35"]}
+{
+  "customERC20Address": "",
+  "hlcAddress": "",
+  "customSecurityAssetAddress": "",
+  "restrictionsAddress": "",
+  "whitelistedAddresses": []
+}

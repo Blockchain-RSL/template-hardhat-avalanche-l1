@@ -192,6 +192,16 @@ contract LoanAsset is ILoanAsset {
         _;
     }
 
+    modifier onlyDepositedLender() {
+        if (
+            lendersInfo[msg.sender].status !=
+            LoanAssetLib.LenderStatusEnum.DEPOSITED
+        ) {
+            revert("Only a lender who deposited can perform this action.");
+        }
+        _;
+    }
+
     // prevent reentrancy
     modifier nonReentrant() {
         if (_locked) {
@@ -273,21 +283,21 @@ contract LoanAsset is ILoanAsset {
             );
         }
 
-        if (_loanAnagInfo.startDate <= block.timestamp) {
-            revert InvalidMathRestrictionStartMaturityDateError(
-                "Start date must be in the future.",
-                _loanAnagInfo.startDate,
-                block.timestamp
-            );
-        }
+        // if (_loanAnagInfo.startDate <= block.timestamp) {
+        //     revert InvalidMathRestrictionStartMaturityDateError(
+        //         "Start date must be in the future.",
+        //         _loanAnagInfo.startDate,
+        //         block.timestamp
+        //     );
+        // }
 
-        if (_loanAnagInfo.maturityDate <= block.timestamp) {
-            revert InvalidMathRestrictionStartMaturityDateError(
-                "Maturity date must be in the future.",
-                _loanAnagInfo.maturityDate,
-                block.timestamp
-            );
-        }
+        // if (_loanAnagInfo.maturityDate <= block.timestamp) {
+        //     revert InvalidMathRestrictionStartMaturityDateError(
+        //         "Maturity date must be in the future.",
+        //         _loanAnagInfo.maturityDate,
+        //         block.timestamp
+        //     );
+        // }
 
         if (_loanAnagInfo.startDate >= _loanAnagInfo.maturityDate) {
             revert InvalidMathRestrictionStartMaturityDateError(
@@ -806,19 +816,24 @@ contract LoanAsset is ILoanAsset {
                 "No outstanding principal amount to pay."
             );
         }
+
+        if (msg.value != principalAmount) {
+            revert InvalidValueError("Incorrect principal amount sent.");
+        }
+
         LoanAssetLib.OutstandingInfo
             storage borrowerOutstandingInfo = borrowersOutstandingPrincipals[
                 msg.sender
             ];
 
-        if (borrowerOutstandingInfo.outstandingPrincipalAmount == 0) {
-            revert InvalidZeroValueError(
-                "No outstanding principal amount to pay."
-            );
-        }
-        if (msg.value != borrowerOutstandingInfo.outstandingPrincipalAmount) {
-            revert InvalidValueError("Incorrect principal amount sent.");
-        }
+        // if (borrowerOutstandingInfo.outstandingPrincipalAmount == 0) {
+        //     revert InvalidZeroValueError(
+        //         "No outstanding principal amount to pay."
+        //     );
+        // }
+        // if (msg.value != borrowerOutstandingInfo.outstandingPrincipalAmount) {
+        //     revert InvalidValueError("Incorrect principal amount sent.");
+        // }
 
         // update outstanding principal amount and repayment number left to pay
         borrowerOutstandingInfo.outstandingPrincipalAmount = 0;
@@ -1011,16 +1026,22 @@ contract LoanAsset is ILoanAsset {
         external
         override
         nonReentrant
-        onlyEnabledLender
+        onlyDepositedLender
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.CLOSED)
     {
         // TODO switch to ERC20 and avoid the 1e18
         uint256 amountToWithDraw = ((address(this).balance *
-            lendersInfo[msg.sender].shares) / 100) * 1e18;
+            lendersInfo[msg.sender].shares) / 100);
         (bool success, ) = msg.sender.call{value: amountToWithDraw}("");
         if (!success) {
             revert InvalidACLBorrowerError("Transfer failed.", msg.sender);
         }
+    }
+
+    function getRepaymentInfo(
+        uint256 repaymentIndex
+    ) external view returns (LoanAssetLib.RepaymentInfo memory) {
+        return borrowersRepayments[msg.sender][repaymentIndex];
     }
 
     // ############################################################### //
