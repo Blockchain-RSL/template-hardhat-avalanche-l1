@@ -134,6 +134,7 @@ interface ILoanAsset {
     event UpdateInterestRateAndRepaymentsEvent(uint256[] interestRates);
 
     event LoanMaturedEvent();
+    event LoanClosedEvent();
 
     event LoanRepaidEvent(address indexed borrower, uint256 repaymentAmount);
 

@@ -1020,6 +1020,8 @@ contract LoanAsset is ILoanAsset {
         }
 
         currentLoanStatus = LoanAssetLib.LoanStatusEnum.CLOSED;
+
+        emit LoanClosedEvent();
     }
 
     function withdrawFunds()
