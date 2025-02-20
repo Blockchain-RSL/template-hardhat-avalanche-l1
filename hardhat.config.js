@@ -12,6 +12,7 @@ module.exports = {
     defaultNetwork: "private_avalanche_isp_climatekick_l1_test",
 
     networks: {
+        hardhat: {},
         private_avalanche_isp_climatekick_l1_test: {
             url: process.env.RPC_URL_AVALANCHE_L1_TEST,
             accounts: accounts,

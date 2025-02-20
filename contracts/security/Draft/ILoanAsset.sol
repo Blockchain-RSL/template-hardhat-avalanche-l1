@@ -8,8 +8,6 @@ interface ILoanAsset {
     // ############## ERRORS ############## //
     // #################################### //
     error InvalidACLOwnerError(string err, address caller);
-    error InvalidACLBorrowerError(string err, address caller);
-    error InvalidACLLenderError(string err, address lender);
     error ReentrancyGuardError(string err);
     error PausedError(string err);
     error InvalidEmptyValueError(string err);
@@ -37,70 +35,71 @@ interface ILoanAsset {
         uint256 interestRate,
         uint256 borrowers
     );
-    error InvalidMathRestrictionSharesLender(
+    error InvalidMathRestrictionSharesLenderError(
         string err,
         uint256 shares,
         uint256 totalShares
     );
-    error InvalidMathRestrictionSharesBorrower(
+    error InvalidMathRestrictionSharesBorrowerError(
         string err,
         uint256 shares,
         uint256 totalShares
     );
-    error InvalidValueInterestRateType(
+    error InvalidValueInterestRateTypeError(
         string err,
         LoanAssetLib.InterestRateTypeEnum currentInterestRateType,
         LoanAssetLib.InterestRateTypeEnum expectedInterestRateType
     );
-    error InvalidValueLoanType(string err, LoanAssetLib.LoanTypeEnum loanType);
-    error InvalidValueLoanStatus(
+    error InvalidValueLoanTypeError(string err, LoanAssetLib.LoanTypeEnum loanType);
+    error InvalidValueLoanStatusError(
         string err,
         LoanAssetLib.LoanStatusEnum currentLoanStatus,
         LoanAssetLib.LoanStatusEnum expectedLoanStatus
     );
-    error InvalidLenghtInterestRateForBorrower(
+    error InvalidLenghtInterestRateForBorrowerError(
         string err,
         uint256 interestRate,
         uint256 borrowers
     );
-    error InvalidValueRepaymentIndex(
+    error InvalidValueRepaymentIndexError(
         string err,
         uint256 expectedRepaymentIndex,
         uint256 repaymentIndex
     );
-    error InvalidValueBorrowerStatus(
+    error InvalidValueBorrowerStatusError(
         string err,
         LoanAssetLib.BorrowerStatusEnum currentBorrowerStatus,
         LoanAssetLib.BorrowerStatusEnum expectedBorrowerStatus
     );
 
-    error InvalidValueLenderStatus(
+    error InvalidValueLenderStatusError(
         string err,
         LoanAssetLib.LenderStatusEnum currentLenderStatus,
         LoanAssetLib.LenderStatusEnum expectedLenderStatus
     );
-    error InsufficientFunds(string err);
-    error InvalidStatusRepayFromAllBorrowers(
+    error InsufficientFundsError(string err);
+    error InvalidTransferError(string err, address to, uint256 amount);
+    error InvalidStatusRepayFromAllBorrowersError(
         string err,
         address borrower,
         LoanAssetLib.RepaymentStatusEnum currentBorrowerStatus,
         LoanAssetLib.RepaymentStatusEnum expectedBorrowerStatus
     );
 
-    error InvalidAmountToFund(
+    error InvalidAmountToFundError(
         string err,
         uint256 amountToFund,
         uint256 amountSent
     );
 
-    error InvalidAmountRepayFromAllBorrowers(
+    error InvalidAmountRepayFromAllBorrowersError(
         string err,
         address borrower,
         uint256 currentBorrowerStatus,
         uint256 expectedBorrowerStatus
     );
 
-    error UnknownValueInterestRateType(
+    error UnknownValueInterestRateTypeError(
         string err,
         LoanAssetLib.InterestRateTypeEnum interestRateType
     );

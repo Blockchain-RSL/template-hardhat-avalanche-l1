@@ -100,6 +100,12 @@ contract LoanAsset is ILoanAsset {
 
     */
 
+    
+    // ##################################################################
+    // ############################ CONSTANT ############################
+    // ##################################################################
+    uint256 public constant SCALING_FACTOR = 1e18;
+
     // ##################################################################
     // ############################ STATE ###############################
     // ##################################################################
@@ -169,35 +175,28 @@ contract LoanAsset is ILoanAsset {
     }
 
     // only enable borrower
-    modifier onlyEnabledBorrower() {
+    modifier onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum _status) {
         if (
-            borrowersInfo[msg.sender].status !=
-            LoanAssetLib.BorrowerStatusEnum.ENABLED
+            borrowersInfo[msg.sender].status != _status
         ) {
-            revert InvalidACLBorrowerError(
-                "Only a enabled borrower can perform this action.",
-                msg.sender
+            revert InvalidValueBorrowerStatusError(
+                "Invalid borrower status.",
+                borrowersInfo[msg.sender].status,
+                _status
             );
         }
         _;
     }
 
-    modifier onlyEnabledLender() {
+    modifier onlyLenderStatus(LoanAssetLib.LenderStatusEnum _status) {
         if (
-            lendersInfo[msg.sender].status !=
-            LoanAssetLib.LenderStatusEnum.ENABLED
+            lendersInfo[msg.sender].status != _status
         ) {
-            revert("Only a enabled lender can perform this action.");
-        }
-        _;
-    }
-
-    modifier onlyDepositedLender() {
-        if (
-            lendersInfo[msg.sender].status !=
-            LoanAssetLib.LenderStatusEnum.DEPOSITED
-        ) {
-            revert("Only a lender who deposited can perform this action.");
+            revert InvalidValueLenderStatusError(
+                "Only a enabled lender can perform this action.",
+                lendersInfo[msg.sender].status,
+                _status
+                );
         }
         _;
     }
@@ -226,7 +225,7 @@ contract LoanAsset is ILoanAsset {
     // modifier to check the loan status
     modifier whenLoanStatus(LoanAssetLib.LoanStatusEnum _status) {
         if (currentLoanStatus != _status) {
-            revert InvalidValueLoanStatus(
+            revert InvalidValueLoanStatusError(
                 "Invalid loan status.",
                 currentLoanStatus,
                 _status
@@ -239,7 +238,7 @@ contract LoanAsset is ILoanAsset {
         LoanAssetLib.InterestRateTypeEnum _interestRateType
     ) {
         if (INTEREST_RATE_TYPE != _interestRateType) {
-            revert InvalidValueInterestRateType(
+            revert InvalidValueInterestRateTypeError(
                 "Invalid interest rate type.",
                 INTEREST_RATE_TYPE,
                 _interestRateType
@@ -370,7 +369,7 @@ contract LoanAsset is ILoanAsset {
             _loanPaymentInfo.spreadForBorrower.length !=
             _loanParticipantInfo.borrowers.length
         ) {
-            revert InvalidLenghtInterestRateForBorrower(
+            revert InvalidLenghtInterestRateForBorrowerError(
                 "Mismatch in borrowers and spread.",
                 _loanPaymentInfo.spreadForBorrower.length,
                 _loanParticipantInfo.borrowers.length
@@ -533,7 +532,7 @@ contract LoanAsset is ILoanAsset {
                     _loanPaymentInfo.interestRates[borrowerIndex]
                 );
             } else {
-                revert UnknownValueInterestRateType(
+                revert UnknownValueInterestRateTypeError(
                     "Unknown interest rate type.",
                     _loanAnagInfo.interestRateType
                 );
@@ -570,13 +569,13 @@ contract LoanAsset is ILoanAsset {
         external
         payable
         override
-        onlyEnabledLender
+        onlyLenderStatus(LoanAssetLib.LenderStatusEnum.ENABLED)
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.PRELIMINARY)
     {
         uint256 amountToFund = (lendersInfo[msg.sender].shares *
             MINIMUM_DENOMINATION_PER_SHARE);
         if (msg.value != amountToFund) {
-            revert InvalidAmountToFund(
+            revert InvalidAmountToFundError(
                 "Invalid Deposit amount.",
                 amountToFund,
                 msg.value
@@ -644,7 +643,7 @@ contract LoanAsset is ILoanAsset {
         uint256 borrowersLength = _borrowers.length; // gas optimization
 
         if (_interestRates.length != borrowersLength) {
-            revert InvalidLenghtInterestRateForBorrower(
+            revert InvalidLenghtInterestRateForBorrowerError(
                 "Mismatch in interest rate and borrowers.",
                 _interestRates.length,
                 borrowersLength
@@ -652,7 +651,7 @@ contract LoanAsset is ILoanAsset {
         }
 
         if (INTEREST_RATE_TYPE != LoanAssetLib.InterestRateTypeEnum.FLOATING) {
-            revert InvalidValueInterestRateType(
+            revert InvalidValueInterestRateTypeError(
                 "Interest rate type must be floating in order to update interest rate.",
                 INTEREST_RATE_TYPE,
                 LoanAssetLib.InterestRateTypeEnum.FLOATING
@@ -689,7 +688,7 @@ contract LoanAsset is ILoanAsset {
         ];
 
         if (borrowerInfo.status != LoanAssetLib.BorrowerStatusEnum.ENABLED) {
-            revert InvalidValueBorrowerStatus(
+            revert InvalidValueBorrowerStatusError(
                 "Borrower must be enabled.",
                 borrowerInfo.status,
                 LoanAssetLib.BorrowerStatusEnum.ENABLED
@@ -721,7 +720,7 @@ contract LoanAsset is ILoanAsset {
         external
         payable
         nonReentrant
-        onlyEnabledBorrower
+        onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
     {
         // check loan status
@@ -731,7 +730,7 @@ contract LoanAsset is ILoanAsset {
             ];
 
         if (repaymentIndex >= TOTAL_REPAYMENT_NUMBER) {
-            revert InvalidValueRepaymentIndex(
+            revert InvalidValueRepaymentIndexError(
                 "Invalid repayment number.",
                 TOTAL_REPAYMENT_NUMBER,
                 repaymentIndex
@@ -744,7 +743,7 @@ contract LoanAsset is ILoanAsset {
 
         // check on repayment status
         if (repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.UNPAID) {
-            revert InvalidStatusRepayFromAllBorrowers(
+            revert InvalidStatusRepayFromAllBorrowersError(
                 "Repayment is not in status unpaid.",
                 msg.sender,
                 repaymentInfo.status,
@@ -796,12 +795,12 @@ contract LoanAsset is ILoanAsset {
         payable
         override
         nonReentrant
-        onlyEnabledBorrower
+        onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.MATURED)
     {
         // check loan status
         if (currentLoanStatus != LoanAssetLib.LoanStatusEnum.MATURED) {
-            revert InvalidValueLoanStatus(
+            revert InvalidValueLoanStatusError(
                 "Loan is not matured.",
                 currentLoanStatus,
                 LoanAssetLib.LoanStatusEnum.MATURED
@@ -850,16 +849,20 @@ contract LoanAsset is ILoanAsset {
         emit LoanRepaidEvent(msg.sender, msg.value);
     }
 
-    function setDefault(address borrower) external onlyOwner {
-        if (
-            borrowersInfo[borrower].status !=
-            LoanAssetLib.BorrowerStatusEnum.ENABLED
-        ) {
-            revert InvalidACLBorrowerError(
-                "Borrower is not enabled.",
-                borrower
-            );
-        }
+    function setDefault(address borrower)
+        external 
+        onlyOwner 
+        onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
+    {
+        // if (
+        //     borrowersInfo[borrower].status !=
+        //     LoanAssetLib.BorrowerStatusEnum.ENABLED
+        // ) {
+        //     revert InvalidACLBorrowerError(
+        //         "Borrower is not enabled.",
+        //         borrower
+        //     );
+        // }
 
         borrowersInfo[borrower].status = LoanAssetLib
             .BorrowerStatusEnum
@@ -869,16 +872,21 @@ contract LoanAsset is ILoanAsset {
     function enableAnticipatePayment(
         address _borrower,
         uint256 _totalAmountToAnticipate
-    ) external onlyOwner whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE) {
-        if (
-            borrowersInfo[_borrower].status !=
-            LoanAssetLib.BorrowerStatusEnum.ENABLED
-        ) {
-            revert InvalidACLBorrowerError(
-                "Borrower is not enabled to anticipate payment.",
-                _borrower
-            );
-        }
+    ) 
+        external 
+        onlyOwner 
+        whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
+        onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
+    {
+        // if (
+        //     borrowersInfo[_borrower].status !=
+        //     LoanAssetLib.BorrowerStatusEnum.ENABLED
+        // ) {
+        //     revert InvalidACLBorrowerError(
+        //         "Borrower is not enabled to anticipate payment.",
+        //         _borrower
+        //     );
+        // }
 
         if (_totalAmountToAnticipate <= 0) {
             revert InvalidZeroValueError(
@@ -908,16 +916,21 @@ contract LoanAsset is ILoanAsset {
 
     function disableAnticipatePayment(
         address borrower
-    ) external onlyOwner whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE) {
-        if (
-            borrowersInfo[msg.sender].status !=
-            LoanAssetLib.BorrowerStatusEnum.ANTICIPATED
-        ) {
-            revert InvalidACLBorrowerError(
-                "Borrower is not enabled to anticipate payment.",
-                msg.sender
-            );
-        }
+    ) 
+        external 
+        onlyOwner 
+        whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
+        onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ANTICIPATED)
+    {
+        // if (
+        //     borrowersInfo[msg.sender].status !=
+        //     LoanAssetLib.BorrowerStatusEnum.ANTICIPATED
+        // ) {
+        //     revert InvalidACLBorrowerError(
+        //         "Borrower is not enabled to anticipate payment.",
+        //         msg.sender
+        //     );
+        // }
 
         borrowersOutstandingPrincipals[borrower].anticipatedRepaymentAmount = 0;
 
@@ -931,16 +944,18 @@ contract LoanAsset is ILoanAsset {
         payable
         nonReentrant
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
+        onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ANTICIPATED)
+
     {
-        if (
-            borrowersInfo[msg.sender].status !=
-            LoanAssetLib.BorrowerStatusEnum.ANTICIPATED
-        ) {
-            revert InvalidACLBorrowerError(
-                "Borrower is not enabled to anticipate payment.",
-                msg.sender
-            );
-        }
+        // if (
+        //     borrowersInfo[msg.sender].status !=
+        //     LoanAssetLib.BorrowerStatusEnum.ANTICIPATED
+        // ) {
+        //     revert InvalidACLBorrowerError(
+        //         "Borrower is not enabled to anticipate payment.",
+        //         msg.sender
+        //     );
+        // }
 
         address borrower = msg.sender;
 
@@ -953,7 +968,7 @@ contract LoanAsset is ILoanAsset {
             .anticipatedRepaymentAmount;
 
         if (msg.value < paymentAmount) {
-            revert InsufficientFunds(
+            revert InsufficientFundsError(
                 "Insufficient funds to anticipate payment."
             );
         }
@@ -1005,7 +1020,7 @@ contract LoanAsset is ILoanAsset {
                 borrowersOutstandingPrincipals[borrowers[borrowersIndex]]
                     .outstandingPrincipalAmount != 0
             ) {
-                revert InvalidAmountRepayFromAllBorrowers(
+                revert InvalidAmountRepayFromAllBorrowersError(
                     "All borrowers must pay all repayments before closing.",
                     borrowers[borrowersIndex],
                     borrowersOutstandingPrincipals[borrowers[borrowersIndex]]
@@ -1028,7 +1043,7 @@ contract LoanAsset is ILoanAsset {
         external
         override
         nonReentrant
-        onlyDepositedLender
+        onlyLenderStatus(LoanAssetLib.LenderStatusEnum.DEPOSITED)
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.CLOSED)
     {
         // TODO switch to ERC20 and avoid the 1e18
@@ -1036,7 +1051,7 @@ contract LoanAsset is ILoanAsset {
             lendersInfo[msg.sender].shares) / 100);
         (bool success, ) = msg.sender.call{value: amountToWithDraw}("");
         if (!success) {
-            revert InvalidACLBorrowerError("Transfer failed.", msg.sender);
+            revert InvalidTransferError("Transfer failed.", msg.sender, amountToWithDraw);
         }
     }
 
@@ -1086,6 +1101,9 @@ contract LoanAsset is ILoanAsset {
             .outstandingPrincipalAmount *
             (borrowerRepaymentInfo.interestRate +
                 borrowerInfo.spread)); /*interest*/
+        //TODO fix formula it is wrong        
+        // uint256 interestMatured = ((borrowerOutstandingInfo.outstandingPrincipalAmount * (borrowerRepaymentInfo.interestRate + borrowerInfo.spread) * SCALING_FACTOR) / 10_000); /*interest*/
+        
         if (LoanAssetLib.LoanTypeEnum.AMORTIZED == LOAN_TYPE) {
             uint256 repaymentsCountLeftToPay = TOTAL_REPAYMENT_NUMBER -
                 borrowerOutstandingInfo.nextRepaymentIndex +
@@ -1097,7 +1115,7 @@ contract LoanAsset is ILoanAsset {
         } else if (LoanAssetLib.LoanTypeEnum.BULLET == LOAN_TYPE) {
             return interestMatured; /*interest*/
         } else {
-            revert InvalidValueLoanType("Invalid loan type.", LOAN_TYPE);
+            revert InvalidValueLoanTypeError("Invalid loan type.", LOAN_TYPE);
         }
     }
 
