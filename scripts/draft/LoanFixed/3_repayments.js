@@ -5,6 +5,7 @@ const fs = require("fs");
 
 async function main() {
     const accounts = await ethers.getSigners();
+    const issuer = accounts[0];
     const borrower = accounts[2];
 
     console.log("borrower address:", borrower.address);
@@ -22,7 +23,7 @@ async function main() {
     console.log("Amount to pay", amountToPay.toString());
 
     const borrowerRepaymentInfo = await loanAssetContract.connect(borrower).getRepaymentInfo(0);
-    console.log("Timestamp to wait", borrowerRepaymentInfo.paymentDate.toString());
+    console.log("RepaymentInfo", borrowerRepaymentInfo.toString());
 
     const paymentTimestamp = Number(borrowerRepaymentInfo.paymentDate); // Converte BigInt in number
 
@@ -34,6 +35,12 @@ async function main() {
     console.log("Timestamp to wait", paymentTimestamp - currentTimestamp);
 
     await new Promise((resolve) => setTimeout(resolve, paymentTimestamp - currentTimestamp + 2));
+    console.log("Timestamp passed");
+
+    console.log("Enable repayment - START");
+    trx = await loanAssetContract.connect(issuer).enableBorrowersRepayment();
+    await trx.wait();
+    console.log("Enable repayment - END");
 
     console.log("start pay repayment");
     trx = await loanAssetContract.connect(borrower).payRepayment(0, { value: amountToPay });

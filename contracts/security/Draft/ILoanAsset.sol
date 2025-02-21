@@ -55,7 +55,10 @@ interface ILoanAsset {
         LoanAssetLib.InterestRateTypeEnum currentInterestRateType,
         LoanAssetLib.InterestRateTypeEnum expectedInterestRateType
     );
-    error InvalidValueLoanTypeError(string err, LoanAssetLib.LoanTypeEnum loanType);
+    error InvalidValueLoanTypeError(
+        string err,
+        LoanAssetLib.LoanTypeEnum loanType
+    );
     error InvalidValueLoanStatusError(
         string err,
         LoanAssetLib.LoanStatusEnum currentLoanStatus,
@@ -128,6 +131,8 @@ interface ILoanAsset {
     );
 
     event LoanStartedEvent();
+
+    event EnableRepaymentEvent();
 
     event RepaymentPaidEvent(
         address indexed borrower,

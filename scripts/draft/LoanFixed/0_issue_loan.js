@@ -21,9 +21,9 @@ async function main() {
     const interestRateType = 0; // FIXED
 
     // Date
-    const startDate = Math.floor(Date.now() / 1000); // Timestamp current
-    const firstRepaymentDate = startDate + 10;
-    const maturityDate = firstRepaymentDate + 10;
+    const startDate = Math.floor(Date.now() / 1000) + 50; // Timestamp current
+    const firstRepaymentDate = startDate + 50;
+    const maturityDate = firstRepaymentDate + 50;
 
     // LoanAnagInfo struct
     const loanAnagInfo = {

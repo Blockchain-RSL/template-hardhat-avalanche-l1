@@ -23,7 +23,8 @@ library LoanAssetLib {
 
     enum RepaymentStatusEnum {
         NOT_ALREADY_DEFINED,
-        UNPAID,
+        INITIALIZED,
+        ENABLED,
         PAID
     }
 
@@ -80,7 +81,7 @@ library LoanAssetLib {
 
     struct OutstandingInfo {
         uint256 outstandingPrincipalAmount;
-        uint256 nextRepaymentIndex;
+        uint256 currentRepaymentIndex;
         uint256 anticipatedRepaymentAmount;
     }
 

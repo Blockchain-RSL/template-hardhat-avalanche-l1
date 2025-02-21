@@ -26,7 +26,7 @@ contract LoanAsset is ILoanAsset {
     Loan Types: Amortized and Bullet
     Interest Rate Type: Fixed and Floating
     Loan Status: Preliminary, Live, Matured, Closed
-    Repayment Status: Undefined, Unpaid, Paid
+    Repayment Status: Undefined, initialized, Enabled, Paid
     Borrower Status: disabled, enabled, Repaid, Defaulted, Anticipated
 
     Loan Issuance:
@@ -169,9 +169,7 @@ contract LoanAsset is ILoanAsset {
 
     // only enable borrower
     modifier onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum _status) {
-        if (
-            borrowersInfo[msg.sender].status != _status
-        ) {
+        if (borrowersInfo[msg.sender].status != _status) {
             revert InvalidValueBorrowerStatusError(
                 "Invalid borrower status.",
                 borrowersInfo[msg.sender].status,
@@ -182,14 +180,12 @@ contract LoanAsset is ILoanAsset {
     }
 
     modifier onlyLenderStatus(LoanAssetLib.LenderStatusEnum _status) {
-        if (
-            lendersInfo[msg.sender].status != _status
-        ) {
+        if (lendersInfo[msg.sender].status != _status) {
             revert InvalidValueLenderStatusError(
                 "Only a enabled lender can perform this action.",
                 lendersInfo[msg.sender].status,
                 _status
-                );
+            );
         }
         _;
     }
@@ -486,50 +482,17 @@ contract LoanAsset is ILoanAsset {
                 .OutstandingInfo({
                     outstandingPrincipalAmount: (shares *
                         MINIMUM_DENOMINATION_PER_SHARE),
-                    nextRepaymentIndex: 1,
+                    currentRepaymentIndex: 0,
                     anticipatedRepaymentAmount: 0
                 });
 
-            // if IR fixed, calculate repayment amount for each borrower and all next repayments
-            if (
-                _loanAnagInfo.interestRateType ==
-                LoanAssetLib.InterestRateTypeEnum.FIXED
-            ) {
-                for (
-                    uint256 repaymentIndex = 0;
-                    repaymentIndex < repaymentsLength;
-
-                ) {
-                    // create repayments
-                    borrowersRepayments[
-                        _loanParticipantInfo.borrowers[borrowerIndex]
-                    ][repaymentIndex] = _createNextRepayment(
-                        _loanPaymentInfo.repaymentsDates[repaymentIndex],
-                        _loanPaymentInfo.interestRates[borrowerIndex]
-                    );
-
-                    unchecked {
-                        repaymentIndex++;
-                    }
-                }
-            } else if (
-                _loanAnagInfo.interestRateType ==
-                LoanAssetLib.InterestRateTypeEnum.FLOATING
-            ) {
-                /* if floating and the IR must be inserted for each repayment manually, so set only the first one
-                and the next ones are going to be defined with the update interest rate */
-                borrowersRepayments[
-                    _loanParticipantInfo.borrowers[borrowerIndex]
-                ][0] = _createNextRepayment(
-                    _loanPaymentInfo.repaymentsDates[0],
-                    _loanPaymentInfo.interestRates[borrowerIndex]
-                );
-            } else {
-                revert UnknownValueInterestRateTypeError(
-                    "Unknown interest rate type.",
-                    _loanAnagInfo.interestRateType
-                );
-            }
+            // create the first repayment for each borrower
+            borrowersRepayments[_loanParticipantInfo.borrowers[borrowerIndex]][
+                0
+            ] = _createNextRepayment(
+                _loanPaymentInfo.repaymentsDates[0],
+                _loanPaymentInfo.interestRates[borrowerIndex]
+            );
 
             unchecked {
                 borrowerIndex++;
@@ -617,6 +580,75 @@ contract LoanAsset is ILoanAsset {
         emit LoanStartedEvent();
     }
 
+    /*
+        Enable the repayment of the current data
+    */
+    function enableRepayment(
+        address _borrower,
+        uint256 _repaymentIndex
+    ) public onlyOwner {
+        LoanAssetLib.RepaymentInfo storage repaymentInfo = borrowersRepayments[
+            _borrower
+        ][_repaymentIndex];
+
+        if (
+            repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.INITIALIZED
+        ) {
+            revert InvalidRepaymentStatusError(
+                "Repayment is already defined.",
+                _borrower,
+                repaymentInfo.status,
+                LoanAssetLib.RepaymentStatusEnum.INITIALIZED
+            );
+        }
+
+        repaymentInfo.status = LoanAssetLib.RepaymentStatusEnum.ENABLED;
+
+        // if not last repayment and fixed, create the next one
+        if (
+            _repaymentIndex < TOTAL_REPAYMENT_NUMBER &&
+            INTEREST_RATE_TYPE == LoanAssetLib.InterestRateTypeEnum.FIXED
+        ) {
+            uint256 nextRepaymentIndex = _repaymentIndex + 1;
+            borrowersRepayments[_borrower][
+                nextRepaymentIndex
+            ] = _createNextRepayment(
+                REPAYMENTS_DATES[nextRepaymentIndex],
+                borrowersRepayments[_borrower][_repaymentIndex].interestRate
+            );
+        } // else if floating, the next repayment will be created by update interest rate
+
+        emit EnableRepaymentEvent();
+    }
+
+    /*
+        When blocktimestamp of next repayment is reached, enable it for all borrower
+    */
+    function enableBorrowersRepayment() public onlyOwner {
+        for (uint256 borrowerIndex = 0; borrowerIndex < borrowers.length; ) {
+            address borrower = borrowers[borrowerIndex];
+
+            if (
+                borrowersInfo[borrower].status !=
+                LoanAssetLib.BorrowerStatusEnum.ENABLED
+            ) {
+                unchecked {
+                    borrowerIndex++;
+                }
+                continue;
+            }
+
+            enableRepayment(
+                borrower,
+                borrowersOutstandingPrincipals[borrower].currentRepaymentIndex
+            );
+
+            unchecked {
+                borrowerIndex++;
+            }
+        }
+    }
+
     // set interest rate
     function updateInterestRateAndRepayments(
         address[] calldata _borrowers,
@@ -694,16 +726,16 @@ contract LoanAsset is ILoanAsset {
                 _borrowerAddress
             ];
 
-        // update repayment info
+        uint256 nextRepaymentIndex = borrowerOutstandingInfo
+            .currentRepaymentIndex + 1;
+
+        // create next repayment info
         borrowersRepayments[_borrowerAddress][
-            borrowerOutstandingInfo.nextRepaymentIndex
-        ] = LoanAssetLib.RepaymentInfo({
-            paymentDate: REPAYMENTS_DATES[
-                borrowerOutstandingInfo.nextRepaymentIndex
-            ],
-            interestRate: _interestRate,
-            status: LoanAssetLib.RepaymentStatusEnum.UNPAID
-        });
+            nextRepaymentIndex
+        ] = _createNextRepayment(
+            REPAYMENTS_DATES[nextRepaymentIndex],
+            _interestRate
+        );
     }
 
     // Borrower request to pay a repayment
@@ -735,20 +767,12 @@ contract LoanAsset is ILoanAsset {
         ][repaymentIndex];
 
         // check on repayment status
-        if (repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.UNPAID) {
+        if (repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.ENABLED) {
             revert InvalidRepaymentStatusError(
-                "Repayment is not in status unpaid.",
+                "Repayment is not in status initialized.",
                 msg.sender,
                 repaymentInfo.status,
-                LoanAssetLib.RepaymentStatusEnum.UNPAID
-            );
-        }
-
-        if (block.timestamp < repaymentInfo.paymentDate) {
-            revert InvalidDateError(
-                "Repayment date has not been reached yet.",
-                block.timestamp,
-                repaymentInfo.paymentDate
+                LoanAssetLib.RepaymentStatusEnum.ENABLED
             );
         }
 
@@ -771,7 +795,8 @@ contract LoanAsset is ILoanAsset {
             borrowerOutstandingInfo
                 .outstandingPrincipalAmount -= repaymentAmount;
         }
-        borrowerOutstandingInfo.nextRepaymentIndex++;
+
+        borrowerOutstandingInfo.currentRepaymentIndex++;
 
         // update repayment status
         repaymentInfo.status = LoanAssetLib.RepaymentStatusEnum.PAID;
@@ -791,15 +816,6 @@ contract LoanAsset is ILoanAsset {
         onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.MATURED)
     {
-        // check loan status
-        if (currentLoanStatus != LoanAssetLib.LoanStatusEnum.MATURED) {
-            revert InvalidValueLoanStatusError(
-                "Loan is not matured.",
-                currentLoanStatus,
-                LoanAssetLib.LoanStatusEnum.MATURED
-            );
-        }
-
         uint256 principalAmount = _calculatePrincipalAmountByBorrower(
             msg.sender
         );
@@ -829,7 +845,6 @@ contract LoanAsset is ILoanAsset {
 
         // update outstanding principal amount and repayment number left to pay
         borrowerOutstandingInfo.outstandingPrincipalAmount = 0;
-        borrowerOutstandingInfo.nextRepaymentIndex = 0;
 
         // update borrower status
         borrowersInfo[msg.sender].status = LoanAssetLib
@@ -842,9 +857,11 @@ contract LoanAsset is ILoanAsset {
         emit LoanRepaidEvent(msg.sender, msg.value);
     }
 
-    function setDefault(address borrower)
-        external 
-        onlyOwner 
+    function setDefault(
+        address borrower
+    )
+        external
+        onlyOwner
         onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
     {
         // if (
@@ -865,9 +882,9 @@ contract LoanAsset is ILoanAsset {
     function enableAnticipatePayment(
         address _borrower,
         uint256 _totalAmountToAnticipate
-    ) 
-        external 
-        onlyOwner 
+    )
+        external
+        onlyOwner
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
         onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ENABLED)
     {
@@ -909,9 +926,9 @@ contract LoanAsset is ILoanAsset {
 
     function disableAnticipatePayment(
         address borrower
-    ) 
-        external 
-        onlyOwner 
+    )
+        external
+        onlyOwner
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
         onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ANTICIPATED)
     {
@@ -938,7 +955,6 @@ contract LoanAsset is ILoanAsset {
         nonReentrant
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
         onlyBorrowerStatus(LoanAssetLib.BorrowerStatusEnum.ANTICIPATED)
-
     {
         // if (
         //     borrowersInfo[msg.sender].status !=
@@ -968,7 +984,6 @@ contract LoanAsset is ILoanAsset {
 
         // update outstanding principal amount and repayment number left to pay
         borrowerOutstandingInfo.outstandingPrincipalAmount = 0;
-        borrowerOutstandingInfo.nextRepaymentIndex = 0;
 
         // update borrower status
         borrowersInfo[borrower].status = LoanAssetLib.BorrowerStatusEnum.REPAID;
@@ -986,13 +1001,6 @@ contract LoanAsset is ILoanAsset {
         onlyOwner
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
     {
-        if (block.timestamp < MATURITY_DATE) {
-            revert InvalidDateError(
-                "Loan has not matured yet.",
-                block.timestamp,
-                MATURITY_DATE
-            );
-        }
         currentLoanStatus = LoanAssetLib.LoanStatusEnum.MATURED;
 
         emit LoanMaturedEvent();
@@ -1032,6 +1040,7 @@ contract LoanAsset is ILoanAsset {
         emit LoanClosedEvent();
     }
 
+    // lenders withdraw fund after the close of contract
     function withdrawFunds()
         external
         override
@@ -1044,7 +1053,11 @@ contract LoanAsset is ILoanAsset {
             lendersInfo[msg.sender].shares) / 100);
         (bool success, ) = msg.sender.call{value: amountToWithDraw}("");
         if (!success) {
-            revert InvalidTransferError("Transfer failed.", msg.sender, amountToWithDraw);
+            revert InvalidTransferError(
+                "Transfer failed.",
+                msg.sender,
+                amountToWithDraw
+            );
         }
     }
 
@@ -1067,7 +1080,7 @@ contract LoanAsset is ILoanAsset {
             LoanAssetLib.RepaymentInfo({
                 paymentDate: _paymentDate,
                 interestRate: _interestRate,
-                status: LoanAssetLib.RepaymentStatusEnum.UNPAID
+                status: LoanAssetLib.RepaymentStatusEnum.INITIALIZED
             });
     }
 
@@ -1082,7 +1095,7 @@ contract LoanAsset is ILoanAsset {
 
         LoanAssetLib.RepaymentInfo
             memory borrowerRepaymentInfo = borrowersRepayments[_borrower][
-                borrowerOutstandingInfo.nextRepaymentIndex
+                borrowerOutstandingInfo.currentRepaymentIndex
             ];
 
         LoanAssetLib.BorrowerInfo memory borrowerInfo = borrowersInfo[
@@ -1094,17 +1107,15 @@ contract LoanAsset is ILoanAsset {
         //     .outstandingPrincipalAmount *
         //     (borrowerRepaymentInfo.interestRate +
         //         borrowerInfo.spread)); /*interest*/
-        //TODO fix formula it is wrong        
-        uint256 interestMatured = (
-            (
-                borrowerOutstandingInfo.outstandingPrincipalAmount * 
-                (borrowerRepaymentInfo.interestRate + borrowerInfo.spread)
-            ) / 10_000); /*interest*/
-        
+        //TODO fix formula it is wrong
+        uint256 interestMatured = ((borrowerOutstandingInfo
+            .outstandingPrincipalAmount *
+            (borrowerRepaymentInfo.interestRate + borrowerInfo.spread)) /
+            10_000); /*interest*/
+
         if (LoanAssetLib.LoanTypeEnum.AMORTIZED == LOAN_TYPE) {
             uint256 repaymentsCountLeftToPay = TOTAL_REPAYMENT_NUMBER -
-                borrowerOutstandingInfo.nextRepaymentIndex +
-                1; // for principal payment
+                borrowerOutstandingInfo.currentRepaymentIndex;
             return
                 (borrowerOutstandingInfo.outstandingPrincipalAmount /
                     repaymentsCountLeftToPay) /* principal */ +
@@ -1127,7 +1138,7 @@ contract LoanAsset is ILoanAsset {
 
         LoanAssetLib.RepaymentInfo
             memory borrowerRepaymentInfo = borrowersRepayments[_borrower][
-                borrowerOutstandingInfo.nextRepaymentIndex
+                borrowerOutstandingInfo.currentRepaymentIndex
             ];
 
         LoanAssetLib.BorrowerInfo memory borrowerInfo = borrowersInfo[
