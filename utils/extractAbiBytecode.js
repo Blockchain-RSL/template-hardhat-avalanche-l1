@@ -1,23 +1,16 @@
 const fs = require("fs");
 
-let contractsList = [
-    "security/CustomSecurityAsset",
-    "emt/CustomERC20",
-    "hlc/ECHLC",
-    "hlc/IEHLC",
-    "hlc/DSHTLC",
-    "security/Restrictions",
-];
+let contractsList = ["security/Draft/LoanAsset"];
 
-let contractsName = ["CustomSecurityAsset", "CustomERC20", "ECHLC", "IEHLC", "DSHTLC", "Restrictions"];
+let contractsName = ["LoanAsset"];
 
 for (let i = 0; i < contractsList.length; i++) {
     // ALLERT! YOU MUST UPDATE FILENAME WITH YOUR PROJECT PATH
-    const fileName = `D:/IntesaSanpaolo/Projects/Avalanche/avalanche-sc-hardhat/contractsInfo/${contractsList[i]}/${contractsName[i]}`;
+    const fileName = `D:/IntesaSanpaolo/Projects/climateKick/template-hardhat-avalanche-l1/contractsInfo/${contractsList[i]}/${contractsName[i]}`;
 
     // Read the JSON file
     const jsonData = fs.readFileSync(
-        `D:/IntesaSanpaolo/Projects/Avalanche/avalanche-sc-hardhat/artifacts/contracts/${contractsList[i]}.sol/${contractsName[i]}.json`,
+        `D:/IntesaSanpaolo/Projects/climateKick/template-hardhat-avalanche-l1/artifacts/contracts/${contractsList[i]}.sol/${contractsName[i]}.json`,
         "utf-8"
     );
 

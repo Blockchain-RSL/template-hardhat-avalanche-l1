@@ -99,13 +99,6 @@ contract LoanAsset is ILoanAsset {
 
 
     */
-
-    
-    // ##################################################################
-    // ############################ CONSTANT ############################
-    // ##################################################################
-    uint256 public constant SCALING_FACTOR = 1e18;
-
     // ##################################################################
     // ############################ STATE ###############################
     // ##################################################################
@@ -282,21 +275,21 @@ contract LoanAsset is ILoanAsset {
             );
         }
 
-        // if (_loanAnagInfo.startDate <= block.timestamp) {
-        //     revert InvalidMathRestrictionStartMaturityDateError(
-        //         "Start date must be in the future.",
-        //         _loanAnagInfo.startDate,
-        //         block.timestamp
-        //     );
-        // }
+        if (_loanAnagInfo.startDate <= block.timestamp) {
+            revert InvalidMathRestrictionStartMaturityDateError(
+                "Start date must be in the future.",
+                _loanAnagInfo.startDate,
+                block.timestamp
+            );
+        }
 
-        // if (_loanAnagInfo.maturityDate <= block.timestamp) {
-        //     revert InvalidMathRestrictionStartMaturityDateError(
-        //         "Maturity date must be in the future.",
-        //         _loanAnagInfo.maturityDate,
-        //         block.timestamp
-        //     );
-        // }
+        if (_loanAnagInfo.maturityDate <= block.timestamp) {
+            revert InvalidMathRestrictionStartMaturityDateError(
+                "Maturity date must be in the future.",
+                _loanAnagInfo.maturityDate,
+                block.timestamp
+            );
+        }
 
         if (_loanAnagInfo.startDate >= _loanAnagInfo.maturityDate) {
             revert InvalidMathRestrictionStartMaturityDateError(
@@ -743,7 +736,7 @@ contract LoanAsset is ILoanAsset {
 
         // check on repayment status
         if (repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.UNPAID) {
-            revert InvalidStatusRepayFromAllBorrowersError(
+            revert InvalidRepaymentStatusError(
                 "Repayment is not in status unpaid.",
                 msg.sender,
                 repaymentInfo.status,
@@ -751,11 +744,11 @@ contract LoanAsset is ILoanAsset {
             );
         }
 
-        if (repaymentInfo.paymentDate > block.timestamp) {
-            revert InvalidMathRestrictionStartMaturityDateError(
+        if (block.timestamp < repaymentInfo.paymentDate) {
+            revert InvalidDateError(
                 "Repayment date has not been reached yet.",
-                repaymentInfo.paymentDate,
-                block.timestamp
+                block.timestamp,
+                repaymentInfo.paymentDate
             );
         }
 
@@ -994,7 +987,7 @@ contract LoanAsset is ILoanAsset {
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.LIVE)
     {
         if (block.timestamp < MATURITY_DATE) {
-            revert InvalidMathRestrictionStartMaturityDateError(
+            revert InvalidDateError(
                 "Loan has not matured yet.",
                 block.timestamp,
                 MATURITY_DATE
@@ -1097,12 +1090,16 @@ contract LoanAsset is ILoanAsset {
         ];
 
         /* TODO amount = (outstanding * ir) / (1 - (1+ ir)^-repayment left ) for amortized instrument*/
-        uint256 interestMatured = (borrowerOutstandingInfo
-            .outstandingPrincipalAmount *
-            (borrowerRepaymentInfo.interestRate +
-                borrowerInfo.spread)); /*interest*/
+        // uint256 interestMatured = (borrowerOutstandingInfo
+        //     .outstandingPrincipalAmount *
+        //     (borrowerRepaymentInfo.interestRate +
+        //         borrowerInfo.spread)); /*interest*/
         //TODO fix formula it is wrong        
-        // uint256 interestMatured = ((borrowerOutstandingInfo.outstandingPrincipalAmount * (borrowerRepaymentInfo.interestRate + borrowerInfo.spread) * SCALING_FACTOR) / 10_000); /*interest*/
+        uint256 interestMatured = (
+            (
+                borrowerOutstandingInfo.outstandingPrincipalAmount * 
+                (borrowerRepaymentInfo.interestRate + borrowerInfo.spread)
+            ) / 10_000); /*interest*/
         
         if (LoanAssetLib.LoanTypeEnum.AMORTIZED == LOAN_TYPE) {
             uint256 repaymentsCountLeftToPay = TOTAL_REPAYMENT_NUMBER -

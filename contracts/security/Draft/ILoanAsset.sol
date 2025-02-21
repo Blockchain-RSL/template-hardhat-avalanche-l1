@@ -17,6 +17,11 @@ interface ILoanAsset {
         uint256 startDate,
         uint256 maturityDate
     );
+    error InvalidDateError(
+        string err,
+        uint256 currentBlockTime,
+        uint256 dateToCompare
+    );
     error InvalidZeroValueError(string err);
     error InvalidZeroLenghtError(string err);
     error InvalidLengthSharesForBorrowerError(
@@ -79,7 +84,7 @@ interface ILoanAsset {
     );
     error InsufficientFundsError(string err);
     error InvalidTransferError(string err, address to, uint256 amount);
-    error InvalidStatusRepayFromAllBorrowersError(
+    error InvalidRepaymentStatusError(
         string err,
         address borrower,
         LoanAssetLib.RepaymentStatusEnum currentBorrowerStatus,
