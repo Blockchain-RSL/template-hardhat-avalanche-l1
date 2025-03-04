@@ -591,12 +591,11 @@ contract LoanAsset is ILoanAsset {
             _borrower
         ][_repaymentIndex];
 
-        if (
-            repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.INITIALIZED
-        ) {
+        if (repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.INITIALIZED) {
             revert InvalidRepaymentStatusError(
-                "Repayment is already defined.",
+                "Repayment is not in status initialized.",
                 _borrower,
+                _repaymentIndex,
                 repaymentInfo.status,
                 LoanAssetLib.RepaymentStatusEnum.INITIALIZED
             );
@@ -605,20 +604,18 @@ contract LoanAsset is ILoanAsset {
         repaymentInfo.status = LoanAssetLib.RepaymentStatusEnum.ENABLED;
 
         // if not last repayment and fixed, create the next one
+        uint256 nextRepaymentIndex = _repaymentIndex + 1;
         if (
-            _repaymentIndex < TOTAL_REPAYMENT_NUMBER &&
+            nextRepaymentIndex < TOTAL_REPAYMENT_NUMBER &&
             INTEREST_RATE_TYPE == LoanAssetLib.InterestRateTypeEnum.FIXED
         ) {
-            uint256 nextRepaymentIndex = _repaymentIndex + 1;
-            borrowersRepayments[_borrower][
-                nextRepaymentIndex
-            ] = _createNextRepayment(
+            borrowersRepayments[_borrower][nextRepaymentIndex] = _createNextRepayment(
                 REPAYMENTS_DATES[nextRepaymentIndex],
                 borrowersRepayments[_borrower][_repaymentIndex].interestRate
             );
         } // else if floating, the next repayment will be created by update interest rate
 
-        emit EnableRepaymentEvent();
+        emit EnableRepaymentEvent(_borrower, _repaymentIndex);
     }
 
     /*
@@ -750,9 +747,7 @@ contract LoanAsset is ILoanAsset {
     {
         // check loan status
         LoanAssetLib.OutstandingInfo
-            storage borrowerOutstandingInfo = borrowersOutstandingPrincipals[
-                msg.sender
-            ];
+            storage borrowerOutstandingInfo = borrowersOutstandingPrincipals[msg.sender];
 
         if (repaymentIndex >= TOTAL_REPAYMENT_NUMBER) {
             revert InvalidValueRepaymentIndexError(
@@ -769,17 +764,16 @@ contract LoanAsset is ILoanAsset {
         // check on repayment status
         if (repaymentInfo.status != LoanAssetLib.RepaymentStatusEnum.ENABLED) {
             revert InvalidRepaymentStatusError(
-                "Repayment is not in status initialized.",
+                "Repayment is not in status enabled.",
                 msg.sender,
+                repaymentIndex,
                 repaymentInfo.status,
                 LoanAssetLib.RepaymentStatusEnum.ENABLED
             );
         }
 
         // check on amount
-        uint256 repaymentAmount = _calculateNextRepaymentAmountByBorrower(
-            msg.sender
-        );
+        uint256 repaymentAmount = _calculateNextRepaymentAmountByBorrower(msg.sender);
         if (repaymentAmount == 0) {
             revert InvalidZeroValueError(
                 "Repayment must be defined before being paid."
@@ -819,7 +813,7 @@ contract LoanAsset is ILoanAsset {
         uint256 principalAmount = _calculatePrincipalAmountByBorrower(
             msg.sender
         );
-        if (principalAmount <= 0) {
+        if (principalAmount == 0) {
             revert InvalidZeroValueError(
                 "No outstanding principal amount to pay."
             );
@@ -1049,16 +1043,22 @@ contract LoanAsset is ILoanAsset {
         whenLoanStatus(LoanAssetLib.LoanStatusEnum.CLOSED)
     {
         // TODO switch to ERC20 and avoid the 1e18
-        uint256 amountToWithDraw = ((address(this).balance *
+        uint256 amountToWithdraw = ((address(this).balance *
             lendersInfo[msg.sender].shares) / 100);
-        (bool success, ) = msg.sender.call{value: amountToWithDraw}("");
+        (bool success, ) = msg.sender.call{value: amountToWithdraw}("");
         if (!success) {
             revert InvalidTransferError(
                 "Transfer failed.",
                 msg.sender,
-                amountToWithDraw
+                amountToWithdraw
             );
         }
+
+        lendersInfo[msg.sender].status = LoanAssetLib
+            .LenderStatusEnum
+            .REFUNDED;
+
+        emit FundsWithdrawnEvent(msg.sender, amountToWithdraw);
     }
 
     function getRepaymentInfo(
@@ -1141,15 +1141,41 @@ contract LoanAsset is ILoanAsset {
                 borrowerOutstandingInfo.currentRepaymentIndex
             ];
 
+        // checks if is ENABLED the last repayment
+        if (
+            borrowerRepaymentInfo.status !=
+            LoanAssetLib.RepaymentStatusEnum.ENABLED
+        ) {
+            revert InvalidRepaymentStatusError(
+                "Repayment is not in status enabled.",
+                _borrower,
+                borrowerOutstandingInfo.currentRepaymentIndex,
+                borrowerRepaymentInfo.status,
+                LoanAssetLib.RepaymentStatusEnum.ENABLED
+            );
+        }
+
+        //checks if is the last repayment
+        if (
+            borrowerOutstandingInfo.currentRepaymentIndex !=
+            TOTAL_REPAYMENT_NUMBER - 1
+        ) {
+            revert InvalidValueRepaymentIndexError(
+                "Principal can be paid only at the end of the loan.",
+                TOTAL_REPAYMENT_NUMBER - 1,
+                borrowerOutstandingInfo.currentRepaymentIndex
+            );
+        }
+
         LoanAssetLib.BorrowerInfo memory borrowerInfo = borrowersInfo[
             _borrower
         ];
 
         /* TODO formula for principal to define */
-        uint256 interestMatured = (borrowerOutstandingInfo
+        uint256 interestMatured = ((borrowerOutstandingInfo
             .outstandingPrincipalAmount *
-            (borrowerRepaymentInfo.interestRate +
-                borrowerInfo.spread)); /*interest*/
+            (borrowerRepaymentInfo.interestRate + borrowerInfo.spread)) /
+            10_000); /*interest*/
         return
             borrowerOutstandingInfo.outstandingPrincipalAmount /* principal */ +
             interestMatured; /*interest*/

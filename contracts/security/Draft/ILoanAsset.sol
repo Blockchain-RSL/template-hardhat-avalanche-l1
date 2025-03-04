@@ -90,6 +90,7 @@ interface ILoanAsset {
     error InvalidRepaymentStatusError(
         string err,
         address borrower,
+        uint256 repaymentIndex,
         LoanAssetLib.RepaymentStatusEnum currentBorrowerStatus,
         LoanAssetLib.RepaymentStatusEnum expectedBorrowerStatus
     );
@@ -117,6 +118,7 @@ interface ILoanAsset {
     // #################################### //
 
     event FundsDepositedEvent(address indexed sender, uint256 amount);
+    event FundsWithdrawnEvent(address indexed sender, uint256 amount);
 
     event LoanIssuedEvent(
         bytes32 name,
@@ -132,7 +134,10 @@ interface ILoanAsset {
 
     event LoanStartedEvent();
 
-    event EnableRepaymentEvent();
+    event EnableRepaymentEvent(
+        address indexed borrower,
+        uint256 repaymentIndex
+    );
 
     event RepaymentPaidEvent(
         address indexed borrower,
