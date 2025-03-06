@@ -3,9 +3,17 @@ pragma solidity ^0.8.20;
 import "./ILoanAssetFungible.sol";
 import "./LoanAssetFungibleLib.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./module/utils/Pausable.sol";
+import "./module/utils/ReentrancyGuard.sol";
+import "./module/utils/Ownable.sol";
 
-
-contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
+contract LoanAssetFungible is
+    ILoanAssetFungible,
+    ERC20,
+    Ownable,
+    Pausable,
+    ReentrancyGuard
+{
     /* LOAN DRAFT
 
     REVIEW CODE
@@ -40,8 +48,6 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
     // ##################################################################
 
     // LOAN INFO
-    address public immutable OWNER;
-
     bytes32 public immutable NAME;
     bytes32 public immutable ISSUANCE_COUNTRY;
     bytes32 public immutable CURRENCY;
@@ -52,7 +58,8 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
     uint256 public immutable MINIMUM_DENOMINATION;
 
     LoanAssetFungibleLib.LoanTypeEnum public immutable LOAN_TYPE;
-    LoanAssetFungibleLib.InterestRateTypeEnum public immutable INTEREST_RATE_TYPE;
+    LoanAssetFungibleLib.InterestRateTypeEnum
+        public immutable INTEREST_RATE_TYPE;
     LoanAssetFungibleLib.LoanStatusEnum public currentLoanStatus;
 
     string public IPFS_DOCUMENTATION_LINK;
@@ -72,13 +79,6 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
     mapping(uint256 => LoanAssetFungibleLib.RepaymentInfo) public repayments;
     ERC20 public immutable PAYMENT_TOKEN; // stable coin or fake payment token
 
-    // UTILS CONTRACT
-    // until 0.8.24 solidity, use _locked to prevent reentrancy
-    bool private _locked;
-
-    // is paused flag
-    bool private _isPaused;
-
     // ##################################################################
     // #################### REMOVED DEFAULT PAYMENT #####################
     // ##################################################################
@@ -89,16 +89,6 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
     // #####################################################################
     // ############################ MODIFIER ###############################
     // #####################################################################
-    // Modifier allowing lender to perform actions
-    modifier onlyOwner() {
-        if (msg.sender != OWNER) {
-            revert InvalidACLOwnerError(
-                "Only the owner can perform this action.",
-                msg.sender
-            );
-        }
-        _;
-    }
 
     // only borrower
     modifier onlyBorrower() {
@@ -118,27 +108,6 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
                 "Only whitelisted investor can perform this action.",
                 msg.sender
             );
-        }
-        _;
-    }
-
-    // prevent reentrancy
-    modifier nonReentrant() {
-        if (_locked) {
-            revert ReentrancyGuardError("ReentrancyGuard: reentrant call");
-        }
-
-        _locked = true;
-
-        _;
-
-        _locked = false;
-    }
-
-    // modifier to check if the contract is paused
-    modifier whenNotPaused() {
-        if (_isPaused) {
-            revert PausedError("Contract is paused");
         }
         _;
     }
@@ -171,8 +140,6 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
     // ##################################################################
     // ############################ EVENT ###############################
     // ##################################################################
-    event Paused();
-    event Unpaused();
 
     // ##################################################################
     // ######################### CONSTRUCTOR ############################
@@ -183,9 +150,8 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
         LoanAssetFungibleLib.LoanPaymentInfo memory _loanPaymentInfo,
         address _paymentToken,
         string memory _ipfsDocumentationLink
-    ) ERC20("LoanAssetFungible", "LOAN") {
+    ) Ownable(msg.sender) ERC20("LoanAssetFungible", "LOAN") {
         // check anag
-
         if (_loanAnagInfo.name == "") {
             revert InvalidEmptyValueError(
                 "Name must be different from empty string."
@@ -253,7 +219,6 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
             );
         }
 
-
         if (_loanPaymentInfo.repaymentsDates.length == 0) {
             revert InvalidZeroLenghtError(
                 "Repayment dates must be greater than zero."
@@ -273,7 +238,10 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
         }
 
         // borrower outstanding must be <= total amount
-        if (_loanPaymentInfo.totalAmount < _loanPaymentInfo.borrowerOustandingAmount) {
+        if (
+            _loanPaymentInfo.totalAmount <
+            _loanPaymentInfo.borrowerOustandingAmount
+        ) {
             revert InvalidValueError(
                 "Borrower outstanding amount must be less or equal to the total amount."
             );
@@ -281,14 +249,15 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
 
         //check zero address
         if (_borrower == address(0)) {
-            revert ZeroAddressError("Borrower address must be different from 0.");
+            revert ZeroAddressError(
+                "Borrower address must be different from 0."
+            );
         }
         if (_paymentToken == address(0)) {
-            revert ZeroAddressError("Payment token address must be different from 0.");
+            revert ZeroAddressError(
+                "Payment token address must be different from 0."
+            );
         }
-
-        // start set state
-        OWNER = msg.sender;
 
         NAME = _loanAnagInfo.name;
         ISSUANCE_COUNTRY = _loanAnagInfo.issuanceCountry;
@@ -302,7 +271,8 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
         MINIMUM_DENOMINATION = _loanPaymentInfo.minimumDenomination;
         BORROWER = _borrower;
         borrowerRepaymentsIndex = 0;
-        borrowerOutstandingPrincipalAmount = _loanPaymentInfo.borrowerOustandingAmount;
+        borrowerOutstandingPrincipalAmount = _loanPaymentInfo
+            .borrowerOustandingAmount;
 
         PAYMENT_TOKEN = ERC20(_paymentToken);
 
@@ -310,43 +280,49 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
 
         currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY;
 
-        emit LoanTokenizedEvent(NAME, OWNER, TOTAL_AMOUNT);
+        emit LoanTokenizedEvent(NAME, Ownable.owner(), TOTAL_AMOUNT);
     }
 
     // ###############################################################
     // ######################### FUNCTION ############################
     // ###############################################################
 
-    // pause contract
-    function pause() external onlyOwner {
-        _isPaused = true;
-        emit Paused();
+    function whitelistInvestors(
+        address[] calldata _investors
+    ) external onlyOwner {
+        uint256 investorsLength = _investors.length;
+        for (uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
+            whitelistInvestor(_investors[_investorIndex]);
+            unchecked {
+                _investorIndex++;
+            }
+        }
     }
 
-    // unpause contract
-    function unpause() external onlyOwner {
-        _isPaused = false;
-        emit Unpaused();
-    }
-
-
-    function whitelistInvestors(address _investor) external onlyOwner {
+    function whitelistInvestor(address _investor) public onlyOwner {
         _whitelist(_investor);
     }
 
     function _whitelist(address _investor) internal {
         if (_investor == address(0)) {
-            revert ZeroAddressError("Investor address must be different from 0.");
+            revert ZeroAddressError(
+                "Investor address must be different from 0."
+            );
         }
         if (whitelistedInvestors[_investor]) {
-            revert InvestorAlreadyWhitelistedError("Investor is already whitelisted.", _investor);
+            revert InvestorAlreadyWhitelistedError(
+                "Investor is already whitelisted.",
+                _investor
+            );
         }
         whitelistedInvestors[_investor] = true;
         investors.push(_investor);
     }
 
     function setInvestorPeriod() external onlyOwner {
-        if(currentLoanStatus != LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
+        if (
+            currentLoanStatus != LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY
+        ) {
             revert InvalidValueLoanStatusError(
                 "Loan status must be preliminary.",
                 currentLoanStatus,
@@ -357,7 +333,10 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
     }
 
     function _depositFunds(address _from, uint256 _amount) internal {
-        if(currentLoanStatus != LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+        if (
+            currentLoanStatus !=
+            LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD
+        ) {
             revert InvalidValueLoanStatusError(
                 "Loan status must be investor period.",
                 currentLoanStatus,
@@ -365,8 +344,10 @@ contract LoanAssetFungible is ILoanAssetFungible, ERC20 {
             );
         }
 
-        if(_amount % MINIMUM_DENOMINATION != 0) {
-            revert InvalidValueError("Amount must be a multiple of the minimum denomination.");
+        if (_amount % MINIMUM_DENOMINATION != 0) {
+            revert InvalidValueError(
+                "Amount must be a multiple of the minimum denomination."
+            );
         }
 
         // other checks to do?

@@ -14,7 +14,6 @@ interface ILoanAssetFungible {
     error InvalidACLBorrowerError(string err, address caller);
     error InvalidACLInvestorError(string err, address caller);
     error ReentrancyGuardError(string err);
-    error PausedError(string err);
     error InvalidEmptyValueError(string err);
     error InvalidValueError(string err);
     error InvalidMathRestrictionStartMaturityDateError(
