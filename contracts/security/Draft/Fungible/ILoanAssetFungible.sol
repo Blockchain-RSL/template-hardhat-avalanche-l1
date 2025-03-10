@@ -29,26 +29,6 @@ interface ILoanAssetFungible {
     error InvalidZeroValueError(string err);
     error InvalidZeroLenghtError(string err);
 
-    error InvalidLengthInterestRateForRepaymentDateError(
-        string err,
-        uint256 interestRatesLength,
-        uint256 repaymentDatesLength
-    );
-    error InvalidMathRestrictionSharesLenderError(
-        string err,
-        uint256 shares,
-        uint256 totalShares
-    );
-    error InvalidMathRestrictionSharesBorrowerError(
-        string err,
-        uint256 shares,
-        uint256 totalShares
-    );
-    error InvalidValueInterestRateTypeError(
-        string err,
-        LoanAssetFungibleLib.InterestRateTypeEnum currentInterestRateType,
-        LoanAssetFungibleLib.InterestRateTypeEnum expectedInterestRateType
-    );
     error InvalidValueLoanTypeError(
         string err,
         LoanAssetFungibleLib.LoanTypeEnum loanType
@@ -58,25 +38,12 @@ interface ILoanAssetFungible {
         LoanAssetFungibleLib.LoanStatusEnum currentLoanStatus,
         LoanAssetFungibleLib.LoanStatusEnum expectedLoanStatus
     );
-    error InvalidLenghtInterestRateForBorrowerError(
-        string err,
-        uint256 interestRate,
-        uint256 borrowers
-    );
-    error InvalidValueRepaymentIndexError(
-        string err,
-        uint256 expectedRepaymentIndex,
-        uint256 repaymentIndex
-    );
 
     error InsufficientFundsError(string err);
     error InvalidTransferError(string err, address to, uint256 amount);
     error InvalidRepaymentStatusError(
         string err,
-        address borrower,
-        uint256 repaymentIndex,
-        LoanAssetFungibleLib.RepaymentStatusEnum currentBorrowerStatus,
-        LoanAssetFungibleLib.RepaymentStatusEnum expectedBorrowerStatus
+        uint256 repaymentIndex
     );
 
     error InvalidAmountToFundError(
@@ -85,16 +52,10 @@ interface ILoanAssetFungible {
         uint256 amountSent
     );
 
-    error InvalidAmountRepayFromAllBorrowersError(
+    error InvalidValueInterestRateTypeError(
         string err,
-        address borrower,
-        uint256 currentBorrowerStatus,
-        uint256 expectedBorrowerStatus
-    );
-
-    error UnknownValueInterestRateTypeError(
-        string err,
-        LoanAssetFungibleLib.InterestRateTypeEnum interestRateType
+        LoanAssetFungibleLib.InterestRateTypeEnum currentInterestRateType,
+        LoanAssetFungibleLib.InterestRateTypeEnum expectedInterestRateType
     );
 
     // #################################### //
@@ -108,19 +69,6 @@ interface ILoanAssetFungible {
         bytes32 name,
         address indexed owner,
         uint256 totalAmount
-    );
-
-    event LoanFundedEvent(
-        address indexed lender,
-        uint256 amount,
-        uint256 totalAmount
-    );
-
-    event LoanStartedEvent();
-
-    event EnableRepaymentEvent(
-        address indexed borrower,
-        uint256 repaymentIndex
     );
 
     event RepaymentPaidEvent(

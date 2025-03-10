@@ -26,8 +26,7 @@ contract LoanAssetFungible is
     
     Only a whitelisted investor can deposit funds and receive the token. Deposit funds are allowed only during the INVESTING_PERIOD status.
 
-
-    The owner will mint the token to the investors during the investor period (INVESTING STATUS) if the threshold is reached (maybe more checks). 
+    The owner will mint the token to the investors during the investor period (INVESTING STATUS) if the goal amount is reached (maybe more checks). 1 token = 1 stable coin value.
     The owner will also be able to burn the token if the loan is closed and all the principal and interest are paid (TODO automatic burn).
 
     The Developers will repay interest and principal to the contract, and the contract will distribute the funds to the investors.
@@ -53,9 +52,13 @@ contract LoanAssetFungible is
     bytes32 public immutable CURRENCY;
 
     uint256 public immutable TOTAL_AMOUNT;
+    uint256 public immutable GOAL_AMOUNT;
+    uint256 internal totalDeposited;
     uint256 public immutable START_DATE; // loan start epoch time
     uint256 public immutable MATURITY_DATE; // maturity date loan epoch time
     uint256 public immutable MINIMUM_DENOMINATION;
+    uint256 public currentRepaymentsIndex;
+
 
     LoanAssetFungibleLib.LoanTypeEnum public immutable LOAN_TYPE;
     LoanAssetFungibleLib.InterestRateTypeEnum
@@ -66,11 +69,10 @@ contract LoanAssetFungible is
 
     // BORROWER INFO
     address public immutable BORROWER;
-    uint256 public borrowerRepaymentsIndex;
     uint256 public borrowerOutstandingPrincipalAmount;
 
     // INVESTORS
-    mapping(address => bool) public whitelistedInvestors;
+    mapping(address => LoanAssetFungibleLib.InvestorInfo) public investorsInfo;
     // i need an array to loop over the investors when the SC distribute the funds
     address[] public investors;
 
@@ -103,7 +105,7 @@ contract LoanAssetFungible is
 
     // only whitelisted investor
     modifier onlyWhitelistedInvestor() {
-        if (!whitelistedInvestors[msg.sender]) {
+        if (!investorsInfo[msg.sender].isWhitelisted) {
             revert InvalidACLInvestorError(
                 "Only whitelisted investor can perform this action.",
                 msg.sender
@@ -201,6 +203,12 @@ contract LoanAssetFungible is
             );
         }
 
+        if (_loanPaymentInfo.goalAmount == 0) {
+            revert InvalidZeroValueError(
+                "Goal amount must be greater than zero."
+            );
+        }
+
         // check minimum denomination
         if (_loanPaymentInfo.minimumDenomination == 0) {
             revert InvalidZeroValueError(
@@ -219,21 +227,9 @@ contract LoanAssetFungible is
             );
         }
 
-        if (_loanPaymentInfo.repaymentsDates.length == 0) {
-            revert InvalidZeroLenghtError(
-                "Repayment dates must be greater than zero."
-            );
-        }
-
-        // check that lenght of interest rates is the same of repayment dates
-        if (
-            _loanPaymentInfo.interestRates.length !=
-            _loanPaymentInfo.repaymentsDates.length
-        ) {
-            revert InvalidLengthInterestRateForRepaymentDateError(
-                "Mismatch in interest rate and borrowers.",
-                _loanPaymentInfo.interestRates.length,
-                _loanPaymentInfo.repaymentsDates.length
+        if (_loanPaymentInfo.numbersRepayment == 0) {
+            revert InvalidZeroValueError(
+                "Number of repayment must be greater than zero."
             );
         }
 
@@ -263,16 +259,31 @@ contract LoanAssetFungible is
         ISSUANCE_COUNTRY = _loanAnagInfo.issuanceCountry;
         CURRENCY = _loanAnagInfo.currency;
         TOTAL_AMOUNT = _loanPaymentInfo.totalAmount;
+        GOAL_AMOUNT = _loanPaymentInfo.goalAmount;
         START_DATE = _loanAnagInfo.startDate;
         MATURITY_DATE = _loanAnagInfo.maturityDate;
         LOAN_TYPE = _loanAnagInfo.loanType;
         INTEREST_RATE_TYPE = _loanAnagInfo.interestRateType;
-        TOTAL_REPAYMENT_NUMBER = _loanPaymentInfo.repaymentsDates.length;
+        TOTAL_REPAYMENT_NUMBER = _loanPaymentInfo.numbersRepayment;
         MINIMUM_DENOMINATION = _loanPaymentInfo.minimumDenomination;
         BORROWER = _borrower;
-        borrowerRepaymentsIndex = 0;
-        borrowerOutstandingPrincipalAmount = _loanPaymentInfo
-            .borrowerOustandingAmount;
+        currentRepaymentsIndex = 0;
+        borrowerOutstandingPrincipalAmount = _loanPaymentInfo.borrowerOustandingAmount;
+
+        //TODO handle creation repayments if FIXED, if floating use updateInterest for create the next repayment
+        if(INTEREST_RATE_TYPE == LoanAssetFungibleLib.InterestRateTypeEnum.FIXED) {
+            for (uint256 i = 0; i < _loanPaymentInfo.numbersRepayment;) {
+                repayments[i] = LoanAssetFungibleLib.RepaymentInfo({
+                    interestRate: _loanPaymentInfo.interestRate,
+                    status: LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED
+                });
+                unchecked {i++;}
+            }
+        // } else if (INTEREST_RATE_TYPE == LoanAssetFungibleLib.InterestRateTypeEnum.FLOATING) {
+        //     repayments[currentRepaymentsIndex].status = LoanAssetFungibleLib.RepaymentStatusEnum.NOT_ALREADY_DEFINED;
+        // } // non devo farlo essendo di default lo stato NOT_ALREADY_DEFINED
+        }
+
 
         PAYMENT_TOKEN = ERC20(_paymentToken);
 
@@ -287,9 +298,7 @@ contract LoanAssetFungible is
     // ######################### FUNCTION ############################
     // ###############################################################
 
-    function whitelistInvestors(
-        address[] calldata _investors
-    ) external onlyOwner {
+    function whitelistInvestors(address[] calldata _investors) external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
         uint256 investorsLength = _investors.length;
         for (uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
             whitelistInvestor(_investors[_investorIndex]);
@@ -299,8 +308,162 @@ contract LoanAssetFungible is
         }
     }
 
-    function whitelistInvestor(address _investor) public onlyOwner {
+    function whitelistInvestor(address _investor) public onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
         _whitelist(_investor);
+    }
+
+    function setInvestorPeriod() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
+        currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD;
+    }
+
+     function depositFunds(uint256 _amount) external onlyWhitelistedInvestor {
+        _depositFunds(msg.sender, _amount);
+    }
+
+    function checkGoals() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+
+        if (totalDeposited >= GOAL_AMOUNT) {
+            _distributeLoanTokens();
+            currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.LIVE;
+        } else {
+            _refundInvestors();
+            _setClose();
+        }
+    }
+
+    function mint(address _to, uint256 _amount) public onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+        if(!investorsInfo[_to].isWhitelisted) {
+            revert InvalidACLInvestorError(
+                "Only whitelisted investor can receive this action.",
+                _to
+            );
+        }
+
+        if(_amount % MINIMUM_DENOMINATION != 0) {
+            revert InvalidValueError(
+                "Amount must be a multiple of the minimum denomination."
+            );
+        }
+
+        _mint(_to, _amount);
+    }
+
+    function setClose() external whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED){
+        _setClose(); 
+    }
+    
+    function updateInterestRateRepayment(uint256 _interstRate) 
+        external
+        onlyOwner() 
+        whenLoanInterestType(LoanAssetFungibleLib.InterestRateTypeEnum.FLOATING) 
+        whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) 
+    {
+        if (currentRepaymentsIndex >= TOTAL_REPAYMENT_NUMBER) {
+            revert InvalidValueError(
+                "All repayments have been already defined."
+            );
+        }
+
+        if (_interstRate == 0) {
+            revert InvalidZeroValueError(
+                "Interest rate must be greater than zero."
+            );
+        }
+
+        _createCurrentRepayment(_interstRate);
+    }
+
+    function enableRepayment() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
+
+        if (currentRepaymentsIndex >= TOTAL_REPAYMENT_NUMBER) {
+            revert InvalidValueError(
+                "All repayments have been already defined."
+            );
+        }
+
+        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
+
+        if (repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED) {
+            revert InvalidRepaymentStatusError(
+                "Repayment must be initialized.",
+                currentRepaymentsIndex
+            );
+        }
+
+        repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.ENABLED;
+
+        // unchecked {
+        //     currentRepaymentsIndex++;
+        // }
+    }
+
+    function payRepayment(uint256 _amount) onlyBorrower() external whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
+    
+        if (currentRepaymentsIndex >= TOTAL_REPAYMENT_NUMBER) {
+            revert InvalidValueError(
+                "All repayments have been already payed."
+            );
+        }
+
+        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
+
+        if (repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.ENABLED) {
+            revert InvalidRepaymentStatusError(
+                "Repayment must be enabled.",
+                 currentRepaymentsIndex
+            );
+        }
+
+        if (_amount == 0) {
+            revert InvalidZeroValueError(
+                "Amount must be greater than zero."
+            );
+        }
+
+        (uint256 calculatedAmount, uint256 principalPaid) = _calculateAmountRepayment(repayment.interestRate, borrowerOutstandingPrincipalAmount);
+
+        if (_amount != calculatedAmount) {
+            revert InvalidValueError(
+                "Amount must be equal to the calculated amount."
+            );
+        }
+
+        borrowerOutstandingPrincipalAmount -= principalPaid;
+        repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.PAID;
+        PAYMENT_TOKEN.transferFrom(msg.sender, address(this), _amount);
+    }
+
+    function _calculateAmountRepayment(uint256 _interestRate, uint256 _principalOutstanding) internal view returns (uint256 calculatedAmount, uint256 principalPaid) {
+        uint256 interestMatured = _calculateInterest(_interestRate, _principalOutstanding);
+
+        if(LOAN_TYPE == LoanAssetFungibleLib.LoanTypeEnum.BULLET) {
+            calculatedAmount = interestMatured;
+        } else if (LOAN_TYPE == LoanAssetFungibleLib.LoanTypeEnum.AMORTIZED) {
+            principalPaid = _principalOutstanding / TOTAL_REPAYMENT_NUMBER;
+            calculatedAmount = interestMatured + principalPaid;
+        }
+        return (calculatedAmount, principalPaid);
+    }
+
+    function _calculateInterest(uint256 _interestRate, uint256 _principalOutstanding) internal pure returns (uint256) {
+        return (_interestRate * _principalOutstanding) / 10_000;
+    }
+
+
+
+
+    function _createCurrentRepayment(uint256 _interstRate) internal {
+        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
+        if (repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.NOT_ALREADY_DEFINED) {
+            revert InvalidRepaymentStatusError(
+                "Repayment must be not already defined.",
+                currentRepaymentsIndex
+            );
+        }
+
+        repayment.interestRate = _interstRate;
+        repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED;
+
     }
 
     function _whitelist(address _investor) internal {
@@ -309,54 +472,59 @@ contract LoanAssetFungible is
                 "Investor address must be different from 0."
             );
         }
-        if (whitelistedInvestors[_investor]) {
+        if (investorsInfo[_investor].isWhitelisted) {
             revert InvestorAlreadyWhitelistedError(
                 "Investor is already whitelisted.",
                 _investor
             );
         }
-        whitelistedInvestors[_investor] = true;
+        investorsInfo[_investor].isWhitelisted = true;
         investors.push(_investor);
+
+        //TODO emit event needed?
     }
 
-    function setInvestorPeriod() external onlyOwner {
-        if (
-            currentLoanStatus != LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY
-        ) {
-            revert InvalidValueLoanStatusError(
-                "Loan status must be preliminary.",
-                currentLoanStatus,
-                LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY
-            );
-        }
-        currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD;
-    }
-
-    function _depositFunds(address _from, uint256 _amount) internal {
-        if (
-            currentLoanStatus !=
-            LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD
-        ) {
-            revert InvalidValueLoanStatusError(
-                "Loan status must be investor period.",
-                currentLoanStatus,
-                LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD
-            );
-        }
-
+    function _depositFunds(address _from, uint256 _amount) internal whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
         if (_amount % MINIMUM_DENOMINATION != 0) {
             revert InvalidValueError(
                 "Amount must be a multiple of the minimum denomination."
             );
         }
-
         // other checks to do?
 
-        // devo salvare l'ammontare che ha depositato l'investor
-        PAYMENT_TOKEN.transferFrom(_from, address(this), MINIMUM_DENOMINATION);
+        investorsInfo[_from].amountDeposited = _amount;
+        totalDeposited += _amount;
+        PAYMENT_TOKEN.transferFrom(_from, address(this), _amount);
+
+        emit FundsDepositedEvent(_from, _amount);
     }
 
-    function depositFunds(uint256 _amount) external onlyWhitelistedInvestor {
-        _depositFunds(msg.sender, _amount);
+    function _setClose() internal onlyOwner(){
+        currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.CLOSED;
     }
+
+    function _distributeLoanTokens() internal {
+        uint256 investorsLength = investors.length;
+            for (uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
+                address investor = investors[_investorIndex];
+                mint(investor, investorsInfo[investor].amountDeposited);
+                unchecked {
+                    _investorIndex++;
+                }
+            }   
+    }
+
+    function _refundInvestors() internal {
+        uint256 investorsLength = investors.length;
+        for(uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
+                address investor = investors[_investorIndex];
+                PAYMENT_TOKEN.transfer(investor, investorsInfo[investor].amountDeposited);
+                investorsInfo[investor].amountDeposited = 0;
+                unchecked {
+                    _investorIndex++;
+                }
+        }
+    }
+
+
 }

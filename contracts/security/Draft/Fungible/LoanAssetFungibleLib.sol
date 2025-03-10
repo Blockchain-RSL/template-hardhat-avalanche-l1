@@ -45,15 +45,20 @@ library LoanAssetFungibleLib {
 
     struct LoanPaymentInfo {
         uint256 totalAmount;
+        uint256 goalAmount;
         uint256 minimumDenomination;
         uint256 borrowerOustandingAmount;
-        uint256[] interestRates;
-        uint256[] repaymentsDates;
+        uint256 interestRate;
+        uint256 numbersRepayment;
     }
 
     struct RepaymentInfo {
-        uint256 paymentDate;
         uint256 interestRate;
         RepaymentStatusEnum status;
+    }
+
+    struct InvestorInfo {
+        bool isWhitelisted;
+        uint256 amountDeposited;
     }
 }
