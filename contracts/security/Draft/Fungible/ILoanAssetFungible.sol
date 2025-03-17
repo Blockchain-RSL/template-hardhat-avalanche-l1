@@ -58,6 +58,10 @@ interface ILoanAssetFungible {
         LoanAssetFungibleLib.InterestRateTypeEnum expectedInterestRateType
     );
 
+    error InvalidRepaymentTypeError(
+        string err
+    );
+
     // #################################### //
     // ############### EVENT ############## //
     // #################################### //

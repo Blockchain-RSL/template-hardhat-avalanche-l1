@@ -14,34 +14,7 @@ contract LoanAssetFungible is
     Pausable,
     ReentrancyGuard
 {
-    /* LOAN DRAFT
 
-    REVIEW CODE
-    CREATE TEST
-    CREATE PROXY
-
-    This contract rappresents the tokenized part of Loan hold by the owner. It will be a fungible token, where tokens gives the rights to the holder to receive interest and principal of the loan.
-
-    Investor will be registered by the owner in the preliminary state of the SC.
-    
-    Only a whitelisted investor can deposit funds and receive the token. Deposit funds are allowed only during the INVESTING_PERIOD status.
-
-    The owner will mint the token to the investors during the investor period (INVESTING STATUS) if the goal amount is reached (maybe more checks). 1 token = 1 stable coin value.
-    The owner will also be able to burn the token if the loan is closed and all the principal and interest are paid (TODO automatic burn).
-
-    The Developers will repay interest and principal to the contract, and the contract will distribute the funds to the investors.
-
-    The contract will have a status, and the owner will be able to change the status of the contract.
-
-    Information about the underlyng loan will be stored in the contract during the deployment.
-
-    TODO
-    mint
-    burn
-
-    TODO override ERC20 functions like transfer: send only to whitelisted addresses
-
-    */
     // ##################################################################
     // ############################ STATE ###############################
     // ##################################################################
@@ -270,20 +243,31 @@ contract LoanAssetFungible is
         currentRepaymentsIndex = 0;
         borrowerOutstandingPrincipalAmount = _loanPaymentInfo.borrowerOustandingAmount;
 
-        //TODO handle creation repayments if FIXED, if floating use updateInterest for create the next repayment
+        //handle creation repayments if FIXED, if FLOATING use updateInterest for create the next repayment
         if(INTEREST_RATE_TYPE == LoanAssetFungibleLib.InterestRateTypeEnum.FIXED) {
-            for (uint256 i = 0; i < _loanPaymentInfo.numbersRepayment;) {
-                repayments[i] = LoanAssetFungibleLib.RepaymentInfo({
+            uint256 principalRemaining = _loanPaymentInfo.borrowerOustandingAmount;
+            for (uint256 index = 0; index < _loanPaymentInfo.numbersRepayment;) {
+
+                (uint256 interestAmount, uint256 principalAmount, LoanAssetFungibleLib.RepaymentTypeEnum repaymentType) = _calculateAmountRepayment(
+                    _loanPaymentInfo.interestRate, principalRemaining, index
+                );
+
+                repayments[index] = LoanAssetFungibleLib.RepaymentInfo({
                     interestRate: _loanPaymentInfo.interestRate,
-                    status: LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED
+                    status: LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED,
+                    interestAmount: interestAmount,
+                    principalAmount: principalAmount,
+                    repaymentType: repaymentType
                 });
-                unchecked {i++;}
+
+                principalRemaining -= principalAmount;
+
+                unchecked {index++;}
             }
         // } else if (INTEREST_RATE_TYPE == LoanAssetFungibleLib.InterestRateTypeEnum.FLOATING) {
         //     repayments[currentRepaymentsIndex].status = LoanAssetFungibleLib.RepaymentStatusEnum.NOT_ALREADY_DEFINED;
         // } // non devo farlo essendo di default lo stato NOT_ALREADY_DEFINED
         }
-
 
         PAYMENT_TOKEN = ERC20(_paymentToken);
 
@@ -349,14 +333,14 @@ contract LoanAssetFungible is
     }
 
     function setClose() external whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED){
-        _setClose(); 
+        _setClose();
     }
-    
-    function updateInterestRateRepayment(uint256 _interstRate) 
+
+    function updateInterestRateRepayment(uint256 _interstRate)
         external
-        onlyOwner() 
-        whenLoanInterestType(LoanAssetFungibleLib.InterestRateTypeEnum.FLOATING) 
-        whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) 
+        onlyOwner()
+        whenLoanInterestType(LoanAssetFungibleLib.InterestRateTypeEnum.FLOATING)
+        whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE)
     {
         if (currentRepaymentsIndex >= TOTAL_REPAYMENT_NUMBER) {
             revert InvalidValueError(
@@ -398,15 +382,21 @@ contract LoanAssetFungible is
     }
 
     function payRepayment(uint256 _amount) onlyBorrower() external whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
-    
-        if (currentRepaymentsIndex >= TOTAL_REPAYMENT_NUMBER) {
-            revert InvalidValueError(
-                "All repayments have been already payed."
-            );
-        }
 
         LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
 
+        if(repayment.repaymentType == LoanAssetFungibleLib.RepaymentTypeEnum.PRINCIPAL) {
+            revert InvalidRepaymentTypeError(
+                "Repayment must be a normal repayment."
+            );
+        }
+
+       _executeRepayment(repayment, _amount);
+
+        currentRepaymentsIndex++;
+    }
+
+    function _executeRepayment(LoanAssetFungibleLib.RepaymentInfo storage repayment, uint256 _amount) internal {
         if (repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.ENABLED) {
             revert InvalidRepaymentStatusError(
                 "Repayment must be enabled.",
@@ -420,7 +410,8 @@ contract LoanAssetFungible is
             );
         }
 
-        (uint256 calculatedAmount, uint256 principalPaid) = _calculateAmountRepayment(repayment.interestRate, borrowerOutstandingPrincipalAmount);
+        uint256 principalPaid = repayment.principalAmount;
+        uint256 calculatedAmount = repayment.interestAmount + principalPaid;
 
         if (_amount != calculatedAmount) {
             revert InvalidValueError(
@@ -433,37 +424,65 @@ contract LoanAssetFungible is
         PAYMENT_TOKEN.transferFrom(msg.sender, address(this), _amount);
     }
 
-    function _calculateAmountRepayment(uint256 _interestRate, uint256 _principalOutstanding) internal view returns (uint256 calculatedAmount, uint256 principalPaid) {
+     function _calculateAmountRepayment(uint256 _interestRate, uint256 _principalOutstanding, uint256 _repaymentIndex)
+        internal
+        view
+        returns (uint256 interestAmount, uint256 principalAmount, LoanAssetFungibleLib.RepaymentTypeEnum repaymentType)
+    {
+
+        uint256 totalRepaymentNumber = TOTAL_REPAYMENT_NUMBER; //gas saving
+        uint256 lastRepaymentIndex = totalRepaymentNumber - 1; //gas saving
+        uint256 remainingRepaymentNumber = lastRepaymentIndex - _repaymentIndex; // needed for italian amortization
+
+        // determine the repayment type
+        repaymentType = LoanAssetFungibleLib.RepaymentTypeEnum.NORMAL;
+        if(_repaymentIndex == lastRepaymentIndex) {
+            repaymentType = LoanAssetFungibleLib.RepaymentTypeEnum.PRINCIPAL;
+        }
+
+        // calculate the interest amount
         uint256 interestMatured = _calculateInterest(_interestRate, _principalOutstanding);
 
+        // calculate the principal amount
         if(LOAN_TYPE == LoanAssetFungibleLib.LoanTypeEnum.BULLET) {
-            calculatedAmount = interestMatured;
+            interestAmount = interestMatured;
+            // if last repayment, the principal amount is the outstanding principal amount (bullet payment)
+            if(_repaymentIndex == lastRepaymentIndex) {
+                principalAmount = _principalOutstanding;
+            }
         } else if (LOAN_TYPE == LoanAssetFungibleLib.LoanTypeEnum.AMORTIZED) {
-            principalPaid = _principalOutstanding / TOTAL_REPAYMENT_NUMBER;
-            calculatedAmount = interestMatured + principalPaid;
+            // italian amortization
+            principalAmount = _principalOutstanding / remainingRepaymentNumber;
         }
-        return (calculatedAmount, principalPaid);
+
+        return (interestAmount, principalAmount, repaymentType);
     }
+
 
     function _calculateInterest(uint256 _interestRate, uint256 _principalOutstanding) internal pure returns (uint256) {
         return (_interestRate * _principalOutstanding) / 10_000;
     }
 
 
-
-
-    function _createCurrentRepayment(uint256 _interstRate) internal {
-        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
+    function _createCurrentRepayment(uint256 _interestRate) internal {
+        uint256 repaymentIndex = currentRepaymentsIndex;
+        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[repaymentIndex];
         if (repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.NOT_ALREADY_DEFINED) {
             revert InvalidRepaymentStatusError(
                 "Repayment must be not already defined.",
-                currentRepaymentsIndex
+                repaymentIndex
             );
         }
 
-        repayment.interestRate = _interstRate;
-        repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED;
+        (uint256 interestAmount, uint256 principalAmount, LoanAssetFungibleLib.RepaymentTypeEnum repaymentType) = _calculateAmountRepayment(
+            _interestRate, borrowerOutstandingPrincipalAmount, repaymentIndex
+        );
 
+        repayment.interestRate = _interestRate;
+        repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED;
+        repayment.interestAmount = interestAmount;
+        repayment.principalAmount = principalAmount;
+        repayment.repaymentType = repaymentType;
     }
 
     function _whitelist(address _investor) internal {
@@ -511,7 +530,7 @@ contract LoanAssetFungible is
                 unchecked {
                     _investorIndex++;
                 }
-            }   
+            }
     }
 
     function _refundInvestors() internal {

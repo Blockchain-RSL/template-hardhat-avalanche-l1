@@ -29,6 +29,11 @@ library LoanAssetFungibleLib {
         PAID
     }
 
+    enum RepaymentTypeEnum {
+        NORMAL,
+        PRINCIPAL
+    }
+
     // ##################################### //
     // ############### STRUCT ############## //
     // ##################################### //
@@ -55,6 +60,9 @@ library LoanAssetFungibleLib {
     struct RepaymentInfo {
         uint256 interestRate;
         RepaymentStatusEnum status;
+        uint256 interestAmount;
+        uint256 principalAmount;
+        RepaymentTypeEnum repaymentType;
     }
 
     struct InvestorInfo {
