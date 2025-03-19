@@ -5,13 +5,13 @@ const fs = require("fs");
 
 async function main() {
     const accounts = await ethers.getSigners();
-    const deployer = accounts[0];
+    const deployer = accounts[2];
 
     console.log("Deployer address:", deployer.address);
 
     // Deploy Restrictions
-    const customERC20 = await hre.ethers.deployContract("CustomERC20", { from: deployer });
-    await customERC20.waitForDeployment();
+    const contractFactory = await ethers.getContractFactory("CustomERC20", deployer);
+    const customERC20 = await contractFactory.deploy();
     console.log("CustomERC20 deployed with address:", customERC20.target);
 
     console.log("write in scInfo json");

@@ -1,5 +1,7 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
+const path = require("path");
+const fs = require("fs");
 
 const PRIVATE_KEY_1 = process.env.PRIVATE_KEY_1;
 const PRIVATE_KEY_2 = process.env.PRIVATE_KEY_2;
@@ -7,6 +9,12 @@ const PRIVATE_KEY_3 = process.env.PRIVATE_KEY_3;
 const PRIVATE_KEY_4 = process.env.PRIVATE_KEY_4;
 
 const accounts = [PRIVATE_KEY_1, PRIVATE_KEY_2, PRIVATE_KEY_3, PRIVATE_KEY_4];
+
+// Carica dinamicamente tutti i file nella cartella tasks
+const tasksPath = path.join(__dirname, "tasks");
+fs.readdirSync(tasksPath)
+    .filter((file) => file.endsWith(".js"))
+    .forEach((file) => require(path.join(tasksPath, file)));
 
 module.exports = {
     defaultNetwork: "private_avalanche_isp_climatekick_l1_test",
@@ -25,7 +33,7 @@ module.exports = {
         },
     },
     solidity: {
-        version: "0.8.20",
+        version: "0.8.24",
 
         settings: {
             optimizer: {

@@ -143,3 +143,98 @@ In order to extract the abi and the bin of a contract, you can use the following
 ```shell
 node ./utils/extractAbiByteCode.js
 ```
+
+# 🛠 Hardhat Tasks per la gestione dei permessi
+
+Questa repository include una serie di task Hardhat per interagire con contratti precompilati su una blockchain compatibile con Ethereum.
+
+I task disponibili sono:
+
+-   `enable-address` → Abilita un indirizzo su un contratto precompilato.
+-   `get-role-address` → Recupera il ruolo di un indirizzo su un contratto precompilato.
+-   `set-admin-address` → Imposta un indirizzo come admin.
+-   `set-manager-address` → Imposta un indirizzo come manager.
+
+---
+
+## 📌 **Setup del progetto**
+
+### **Configurazione**
+
+I task utilizzano un mapping per identificare gli indirizzi dei contratti precompilati. Questi contratti sono:
+
+| Label precompiles | Nome contratto         | Indirizzo                                    |
+| ----------------- | ---------------------- | -------------------------------------------- |
+| **deployer**      | Deployer Allow List    | `0x0200000000000000000000000000000000000000` |
+| **minter**        | Native Minter          | `0x0200000000000000000000000000000000000001` |
+| **transaction**   | Transaction Allow List | `0x0200000000000000000000000000000000000002` |
+
+Per eseguire i task, puoi specificare il **Label precompiles** invece dell'indirizzo, grazie alla mappatura interna.
+
+---
+
+## 🚀 **Utilizzo dei task**
+
+### **1️⃣ Abilitare un indirizzo (`enable-address`)**
+
+Abilita un indirizzo in un contratto precompilato.
+
+```sh
+npx hardhat enable-address --precompile <nome-contratto> --address <indirizzo>
+```
+
+**Esempio:**
+
+```sh
+npx hardhat enable-address --precompile deployer --address 0x627306090abaB3A6e1400e9345bC60c78a8BEf57
+```
+
+### **2️⃣ Ottenere il ruolo di un indirizzo (`get-role-address`)**
+
+Recupera il ruolo di un indirizzo in un contratto precompilato.
+
+```sh
+npx hardhat get-role-address --precompile <nome-contratto> --address <indirizzo>
+```
+
+**Esempio:**
+
+```sh
+npx hardhat get-role-address --precompile minter --address 0x627306090abaB3A6e1400e9345bC60c78a8BEf57
+```
+
+L'output mostrerà il ruolo assegnato all'indirizzo.
+
+---
+
+### **3️⃣ Impostare un admin (`set-admin-address`)**
+
+Imposta un indirizzo come admin in un contratto precompilato.
+
+```sh
+npx hardhat set-admin-address --precompile <nome-contratto> --address <indirizzo>
+```
+
+**Esempio:**
+
+```sh
+npx hardhat set-admin-address --precompile transaction --address 0x627306090abaB3A6e1400e9345bC60c78a8BEf57
+```
+
+---
+
+### **4️⃣ Impostare un manager (`set-manager-address`)**
+
+Imposta un indirizzo come manager in un contratto precompilato.
+
+```sh
+npx hardhat set-manager-address --precompile <nome-contratto> --address <indirizzo>
+```
+
+**Esempio:**
+
+```sh
+npx hardhat set-manager-address --precompile deployer --address 0x627306090abaB3A6e1400e9345bC60c78a8BEf57
+```
+
+---
