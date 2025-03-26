@@ -7,7 +7,7 @@ contract CustomERC20 is ERC20 {
     uint256 private constant _initialSupply = 100e12; // 100 trillion tokens
 
     function decimals() public view virtual override returns (uint8) {
-        return 0;
+        return 6;
     }
 
     constructor() ERC20("CustomERC20", "CE20") {

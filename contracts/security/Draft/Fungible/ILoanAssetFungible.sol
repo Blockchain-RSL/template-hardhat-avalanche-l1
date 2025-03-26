@@ -10,6 +10,7 @@ interface ILoanAssetFungible {
     // #################################### //
     error ZeroAddressError(string err);
     error InvestorAlreadyWhitelistedError(string err, address investor);
+    error InvestorNotWhitelistedError(string err, address investor);
     error InvalidACLOwnerError(string err, address caller);
     error InvalidACLBorrowerError(string err, address caller);
     error InvalidACLInvestorError(string err, address caller);
@@ -27,29 +28,17 @@ interface ILoanAssetFungible {
         uint256 dateToCompare
     );
     error InvalidZeroValueError(string err);
-    error InvalidZeroLenghtError(string err);
-
-    error InvalidValueLoanTypeError(
-        string err,
-        LoanAssetFungibleLib.LoanTypeEnum loanType
-    );
+   
     error InvalidValueLoanStatusError(
         string err,
         LoanAssetFungibleLib.LoanStatusEnum currentLoanStatus,
         LoanAssetFungibleLib.LoanStatusEnum expectedLoanStatus
     );
 
-    error InsufficientFundsError(string err);
-    error InvalidTransferError(string err, address to, uint256 amount);
+    error InsufficientGoalAmountError(string err);
     error InvalidRepaymentStatusError(
         string err,
         uint256 repaymentIndex
-    );
-
-    error InvalidAmountToFundError(
-        string err,
-        uint256 amountToFund,
-        uint256 amountSent
     );
 
     error InvalidValueInterestRateTypeError(
@@ -67,7 +56,6 @@ interface ILoanAssetFungible {
     // #################################### //
 
     event FundsDepositedEvent(address indexed sender, uint256 amount);
-    event FundsWithdrawnEvent(address indexed sender, uint256 amount);
 
     event LoanTokenizedEvent(
         bytes32 name,
@@ -81,12 +69,15 @@ interface ILoanAssetFungible {
         uint256 repaymentNumber
     );
 
-    event UpdateInterestRateAndRepaymentsEvent(uint256[] interestRates);
+    event PrincipalPaidEvent(
+        address indexed borrower,
+        uint256 repaymentAmount
+    );
 
     event LoanMaturedEvent();
+    event LoanInvestorPeriodEvent();
     event LoanClosedEvent();
 
-    event LoanRepaidEvent(address indexed borrower, uint256 repaymentAmount);
 
     // ##################################### //
     // ############### VIEW ################ //

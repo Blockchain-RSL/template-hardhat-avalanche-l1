@@ -7,7 +7,7 @@ async function main() {
     for (let i = 0; i < accounts.length; i++) {
         // get balance of receiver
         const balanceAccount = await ethers.provider.getBalance(accounts[i].address);
-        console.log(`Balance of ${accounts[i].address}: ${balanceAccount}`);
+        console.log(`Balance of ${accounts[i].address}: ${ethers.formatEther(balanceAccount)}`);
     }
 }
 

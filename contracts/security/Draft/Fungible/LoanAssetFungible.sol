@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 import "./ILoanAssetFungible.sol";
 import "./LoanAssetFungibleLib.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./module/utils/Pausable.sol";
 import "./module/utils/ReentrancyGuard.sol";
 import "./module/utils/Ownable.sol";
@@ -26,7 +27,6 @@ contract LoanAssetFungible is
 
     uint256 public immutable TOTAL_AMOUNT;
     uint256 public immutable GOAL_AMOUNT;
-    uint256 internal totalDeposited;
     uint256 public immutable START_DATE; // loan start epoch time
     uint256 public immutable MATURITY_DATE; // maturity date loan epoch time
     uint256 public immutable MINIMUM_DENOMINATION;
@@ -52,14 +52,12 @@ contract LoanAssetFungible is
     // PAYMENT DETAILS
     uint256 public immutable TOTAL_REPAYMENT_NUMBER;
     mapping(uint256 => LoanAssetFungibleLib.RepaymentInfo) public repayments;
-    ERC20 public immutable PAYMENT_TOKEN; // stable coin or fake payment token
+    IERC20 public immutable PAYMENT_TOKEN; // stable coin or fake payment token
 
-    // ##################################################################
-    // #################### REMOVED DEFAULT PAYMENT #####################
-    // ##################################################################
-    // receive() external payable {}
+    uint256 private _totalDeposited;
+    uint256 private _numInvestorsActive;
+    uint256 private _remainingLastRepayment; // number of investors that have deposited funds and not yet redeemed
 
-    // fallback() external payable {}
 
     // #####################################################################
     // ############################ MODIFIER ###############################
@@ -111,10 +109,6 @@ contract LoanAssetFungible is
         }
         _;
     }
-
-    // ##################################################################
-    // ############################ EVENT ###############################
-    // ##################################################################
 
     // ##################################################################
     // ######################### CONSTRUCTOR ############################
@@ -282,10 +276,24 @@ contract LoanAssetFungible is
     // ######################### FUNCTION ############################
     // ###############################################################
 
+     function decimals() public view virtual override returns (uint8) {
+        return 6;
+    }
+
     function whitelistInvestors(address[] calldata _investors) external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
         uint256 investorsLength = _investors.length;
         for (uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
-            whitelistInvestor(_investors[_investorIndex]);
+            _whitelistInvestor(_investors[_investorIndex]);
+            unchecked {
+                _investorIndex++;
+            }
+        }
+    }
+
+    function unwhitelistInvestors(address[] calldata _investors) external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
+        uint256 investorsLength = _investors.length;
+        for (uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
+            _unwhitelistInvestor(_investors[_investorIndex]);
             unchecked {
                 _investorIndex++;
             }
@@ -293,26 +301,41 @@ contract LoanAssetFungible is
     }
 
     function whitelistInvestor(address _investor) public onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
-        _whitelist(_investor);
+        _whitelistInvestor(_investor);
+    }
+
+    function unwhitelistInvestor(address _investor) public onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
+        _unwhitelistInvestor(_investor);
     }
 
     function setInvestorPeriod() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.PRELIMINARY) {
         currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD;
+
+        emit LoanInvestorPeriodEvent();
     }
 
      function depositFunds(uint256 _amount) external onlyWhitelistedInvestor {
         _depositFunds(msg.sender, _amount);
     }
 
-    function checkGoals() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+    function getTotalDeposit() external onlyOwner view returns (uint256) {
+        return _totalDeposited;
+    }
 
-        if (totalDeposited >= GOAL_AMOUNT) {
-            _distributeLoanTokens();
-            currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.LIVE;
-        } else {
-            _refundInvestors();
-            _setClose();
+    function checkGoals() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+        if (_totalDeposited < GOAL_AMOUNT) {
+            revert InsufficientGoalAmountError("Insufficient goal amount.");
         }
+        _distributeLoanTokens();
+        PAYMENT_TOKEN.transfer(msg.sender, _totalDeposited);
+
+        currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.LIVE;
+    }
+
+    function refundInvestors() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+        // TODO bisogna fare dei check sul balance dello SC? vengono comunque fatti nel transfer
+        _refundInvestors();
+        _setClose();
     }
 
     function mint(address _to, uint256 _amount) public onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
@@ -332,10 +355,14 @@ contract LoanAssetFungible is
         _mint(_to, _amount);
     }
 
-    function setClose() external whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED){
+    function setClose() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED){
         _setClose();
     }
 
+    /**
+        * @dev Update the interest rate for the next repayment. Needed only if the interest rate is floating.
+        * @param _interstRate The new interest rate.
+    */
     function updateInterestRateRepayment(uint256 _interstRate)
         external
         onlyOwner()
@@ -367,18 +394,25 @@ contract LoanAssetFungible is
 
         LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
 
-        if (repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED) {
+        if (repayment.repaymentType != LoanAssetFungibleLib.RepaymentTypeEnum.NORMAL) {
+            revert InvalidRepaymentTypeError(
+                "Repayment must be a normal repayment."
+            );
+        }
+
+        _enableRepayment(repayment);
+    }
+
+    function _enableRepayment(LoanAssetFungibleLib.RepaymentInfo storage _repayment) internal {
+
+        if (_repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.INITIALIZED) {
             revert InvalidRepaymentStatusError(
                 "Repayment must be initialized.",
                 currentRepaymentsIndex
             );
         }
 
-        repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.ENABLED;
-
-        // unchecked {
-        //     currentRepaymentsIndex++;
-        // }
+        _repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.ENABLED;
     }
 
     function payRepayment(uint256 _amount) onlyBorrower() external whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
@@ -393,7 +427,120 @@ contract LoanAssetFungible is
 
        _executeRepayment(repayment, _amount);
 
+       emit PrincipalPaidEvent(msg.sender, _amount);
+    }
+
+    function distributeInterest() external onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
+        LoanAssetFungibleLib.RepaymentInfo memory repayment = repayments[currentRepaymentsIndex];
+
+        if(repayment.repaymentType == LoanAssetFungibleLib.RepaymentTypeEnum.PRINCIPAL) {
+            revert InvalidRepaymentTypeError(
+                "Repayment must be a normal repayment."
+            );
+        }
+
+        if(repayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.PAID) {
+            revert InvalidRepaymentStatusError(
+                "Repayment must be paid.",
+                currentRepaymentsIndex
+            );
+        }
+
+        // per each investor, calculate the interest proportional to the amount deposited and send PAYMENTAMOUNT to the investor
+        // the last investor will receive the rest of the division (for now)
+        // TODO manage rest of division: send the rest to owner? to last investor? leave in the sc?
+        uint256 lastInvestorIndex = investors.length - 1;
+        uint256 totalAmountRepayment = repayment.interestAmount + repayment.principalAmount;
+        uint256 totalDistributed = 0;
+        for (uint256 i = 0; i < lastInvestorIndex; ) {
+            address investor = investors[i];
+            uint256 interestAmount = (balanceOf(investor) * totalAmountRepayment) / _totalDeposited;
+            PAYMENT_TOKEN.transfer(investor, interestAmount);
+            totalDistributed += interestAmount;
+            unchecked {
+                i++;
+            }
+        }
+        // last investor
+        uint256 lastInterestAmount = totalAmountRepayment - totalDistributed;
+        address lastInvestor = investors[lastInvestorIndex];
+        PAYMENT_TOKEN.transfer(lastInvestor, lastInterestAmount);
+
+        // only after repaying the interst to investors, we can move to the next repayment
         currentRepaymentsIndex++;
+
+        //TODO maybe need events?
+    }
+
+    function setMatured() external onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
+        // last repayment is TOTAL_REPAYMENT_NUMBER - 1, and it is the principal repayment.
+        // You can pay it only after all the normal repayments and when the loan is matured
+        uint256 currentIndex = currentRepaymentsIndex;
+        if(currentIndex != TOTAL_REPAYMENT_NUMBER - 1) {
+            revert InvalidValueError(
+                "All normal repayments must be paid."
+            );
+        }
+
+        currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.MATURED;
+
+        // enable last repayment
+        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentIndex];
+        _enableRepayment(repayment);
+
+        emit LoanMaturedEvent();
+    }
+
+    function payPrincipal(uint256 _amount) external onlyBorrower() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED) {
+        LoanAssetFungibleLib.RepaymentInfo storage repayment = repayments[currentRepaymentsIndex];
+
+        if(repayment.repaymentType != LoanAssetFungibleLib.RepaymentTypeEnum.PRINCIPAL) {
+            revert InvalidRepaymentTypeError(
+                "Repayment must be a principal repayment."
+            );
+        }
+
+        _executeRepayment(repayment, _amount);
+        _remainingLastRepayment = _amount; // needed for reedemTokens
+    }
+
+    function redeemTokens() external onlyWhitelistedInvestor() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED) nonReentrant() {
+        if (_numInvestorsActive == 0) {
+            revert InvalidValueError("No active investors remaining.");
+        }
+
+        LoanAssetFungibleLib.RepaymentInfo memory lastRepayment = repayments[currentRepaymentsIndex];
+
+        if(lastRepayment.status != LoanAssetFungibleLib.RepaymentStatusEnum.PAID) {
+            revert InvalidRepaymentStatusError(
+                "Last repayment must be paid.",
+                currentRepaymentsIndex
+            );
+        }
+        uint256 amountHold = balanceOf(msg.sender);
+        if(amountHold == 0) {
+            revert InvalidZeroValueError(
+                "Amount must be greater than zero."
+            );
+        }
+
+        uint256 totalAmountRepayment = lastRepayment.interestAmount + lastRepayment.principalAmount;
+        uint256 amountToPayToInvestor;
+
+        if (_numInvestorsActive == 1) {
+        // last investor: send all the remaining balance
+            // Note: Ensure that the contract's balance only includes legitimate repayments to avoid discrepancies.
+            amountToPayToInvestor = _remainingLastRepayment;
+        } else {
+        // other investors: send the proportional amount
+            amountToPayToInvestor = (amountHold * totalAmountRepayment) / _totalDeposited;
+            _remainingLastRepayment -= amountToPayToInvestor;
+        }
+
+        _numInvestorsActive--;
+
+        PAYMENT_TOKEN.transfer(msg.sender, amountToPayToInvestor);
+        _burn(msg.sender, amountHold);
     }
 
     function _executeRepayment(LoanAssetFungibleLib.RepaymentInfo storage repayment, uint256 _amount) internal {
@@ -421,6 +568,7 @@ contract LoanAssetFungible is
 
         borrowerOutstandingPrincipalAmount -= principalPaid;
         repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.PAID;
+        // NB: needed an approve before by borrower
         PAYMENT_TOKEN.transferFrom(msg.sender, address(this), _amount);
     }
 
@@ -485,7 +633,7 @@ contract LoanAssetFungible is
         repayment.repaymentType = repaymentType;
     }
 
-    function _whitelist(address _investor) internal {
+    function _whitelistInvestor(address _investor) internal {
         if (_investor == address(0)) {
             revert ZeroAddressError(
                 "Investor address must be different from 0."
@@ -503,6 +651,31 @@ contract LoanAssetFungible is
         //TODO emit event needed?
     }
 
+    function _unwhitelistInvestor(address _investor) internal {
+        if (_investor == address(0)) {
+            revert ZeroAddressError(
+                "Investor address must be different from 0."
+            );
+        }
+        if (!investorsInfo[_investor].isWhitelisted) {
+            revert InvestorNotWhitelistedError(
+                "Investor is not whitelisted.",
+                _investor
+            );
+        }
+        investorsInfo[_investor].isWhitelisted = false;
+        uint256 investorsLength = investors.length;
+        for (uint256 i = 0; i < investorsLength; i++) {
+            if (investors[i] == _investor) {
+                // swap the last element with the element to remove
+                investors[i] = investors[investorsLength - 1];
+                investors.pop();
+                break;
+            }
+        }
+        //TODO emit event needed?
+    }
+
     function _depositFunds(address _from, uint256 _amount) internal whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
         if (_amount % MINIMUM_DENOMINATION != 0) {
             revert InvalidValueError(
@@ -511,8 +684,12 @@ contract LoanAssetFungible is
         }
         // other checks to do?
 
-        investorsInfo[_from].amountDeposited = _amount;
-        totalDeposited += _amount;
+        // if the investor is not already in the list, add it. Maybe an investor can deposit multiple times
+        if(investorsInfo[_from].amountDeposited == 0) {
+            _numInvestorsActive++;
+        }
+        investorsInfo[_from].amountDeposited += _amount;
+        _totalDeposited += _amount;
         PAYMENT_TOKEN.transferFrom(_from, address(this), _amount);
 
         emit FundsDepositedEvent(_from, _amount);
@@ -520,6 +697,8 @@ contract LoanAssetFungible is
 
     function _setClose() internal onlyOwner(){
         currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.CLOSED;
+
+        emit LoanClosedEvent();
     }
 
     function _distributeLoanTokens() internal {
@@ -544,6 +723,5 @@ contract LoanAssetFungible is
                 }
         }
     }
-
 
 }

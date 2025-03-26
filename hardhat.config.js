@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
+require("hardhat-gas-reporter");
 const path = require("path");
 const fs = require("fs");
 
@@ -17,6 +18,14 @@ fs.readdirSync(tasksPath)
     .forEach((file) => require(path.join(tasksPath, file)));
 
 module.exports = {
+    gasReporter: {
+        enabled: true,
+        currency: "EUR",
+        L1: "avalanche",
+        coinmarketcap: process.env.COINMARKETCAP_API_KEY,
+        L1Etherscan: process.env.ETHERSCAN_API_KEY,
+        currencyDisplayPrecision: 6,
+    },
     defaultNetwork: "private_avalanche_isp_climatekick_l1_test",
 
     networks: {
