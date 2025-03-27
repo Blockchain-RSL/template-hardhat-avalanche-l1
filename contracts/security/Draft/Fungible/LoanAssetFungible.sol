@@ -334,6 +334,8 @@ contract LoanAssetFungible is
         if(!success) {
             revert TransferERC20Error("Error during the transfer of the funds.");
         }
+
+        emit LoanLiveEvent();
     }
 
     function refundInvestors() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
@@ -342,7 +344,7 @@ contract LoanAssetFungible is
         _refundInvestors();
     }
 
-    function mint(address _to, uint256 _amount) public onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
+    function mint(address _to, uint256 _amount) public onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
         if(!investorsInfo[_to].isWhitelisted) {
             revert InvalidACLInvestorError(
                 "Only whitelisted investor can receive this action.",
@@ -431,7 +433,7 @@ contract LoanAssetFungible is
 
        _executeRepayment(repayment, _amount);
 
-       emit PrincipalPaidEvent(msg.sender, _amount);
+       emit RepaymentPaidEvent(msg.sender, _amount, currentRepaymentsIndex);
     }
 
     function distributeInterest() external onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
@@ -481,6 +483,11 @@ contract LoanAssetFungible is
             revert TransferERC20Error("Error during the transfer of the funds.");
         }
         //TODO maybe need events?
+        emit InterestPaidEvent(
+            msg.sender,
+            lastInterestAmount,
+            currentRepaymentsIndex
+        );
     }
 
     function setMatured() external onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.LIVE) {
@@ -513,6 +520,11 @@ contract LoanAssetFungible is
 
         _executeRepayment(repayment, _amount);
         _remainingLastRepayment = _amount; // needed for reedemTokens
+
+        emit PrincipalPaidEvent(
+            msg.sender,
+            _amount
+        );
     }
 
     function redeemTokens() external onlyWhitelistedInvestor() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.MATURED) nonReentrant() {
@@ -665,7 +677,7 @@ contract LoanAssetFungible is
         investorsInfo[_investor].isWhitelisted = true;
         investors.push(_investor);
 
-        //TODO emit event needed?
+        emit InvestorWhitelistedEvent(_investor);
     }
 
     function _unwhitelistInvestor(address _investor) internal {
@@ -690,7 +702,8 @@ contract LoanAssetFungible is
                 break;
             }
         }
-        //TODO emit event needed?
+        
+        emit InvestorUnwhitelistedEvent(_investor);
     }
 
     function _depositFunds(address _from, uint256 _amount) internal whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {

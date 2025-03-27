@@ -76,10 +76,24 @@ interface ILoanAssetFungible {
         uint256 repaymentAmount
     );
 
+    event InterestPaidEvent(
+        address indexed borrower,
+        uint256 interestAmount,
+        uint256 repaymentNumber
+    );
+
     event LoanMaturedEvent();
     event LoanInvestorPeriodEvent();
+    event LoanLiveEvent();
     event LoanClosedEvent();
 
+    event InvestorWhitelistedEvent(
+        address indexed investor
+    );
+
+    event InvestorUnwhitelistedEvent(
+        address indexed investor
+    );
 
     // ##################################### //
     // ############### VIEW ################ //
