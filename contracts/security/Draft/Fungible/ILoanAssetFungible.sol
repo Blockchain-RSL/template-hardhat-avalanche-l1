@@ -51,6 +51,8 @@ interface ILoanAssetFungible {
         string err
     );
 
+    error TransferERC20Error(string err);
+
     // #################################### //
     // ############### EVENT ############## //
     // #################################### //

@@ -327,15 +327,19 @@ contract LoanAssetFungible is
             revert InsufficientGoalAmountError("Insufficient goal amount.");
         }
         _distributeLoanTokens();
-        PAYMENT_TOKEN.transfer(msg.sender, _totalDeposited);
 
         currentLoanStatus = LoanAssetFungibleLib.LoanStatusEnum.LIVE;
+
+        bool success = PAYMENT_TOKEN.transfer(msg.sender, _totalDeposited);
+        if(!success) {
+            revert TransferERC20Error("Error during the transfer of the funds.");
+        }
     }
 
     function refundInvestors() external onlyOwner whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
         // TODO bisogna fare dei check sul balance dello SC? vengono comunque fatti nel transfer
-        _refundInvestors();
         _setClose();
+        _refundInvestors();
     }
 
     function mint(address _to, uint256 _amount) public onlyOwner() whenLoanStatus(LoanAssetFungibleLib.LoanStatusEnum.INVESTOR_PERIOD) {
@@ -446,16 +450,23 @@ contract LoanAssetFungible is
             );
         }
 
+        currentRepaymentsIndex++;
+
         // per each investor, calculate the interest proportional to the amount deposited and send PAYMENTAMOUNT to the investor
         // the last investor will receive the rest of the division (for now)
         // TODO manage rest of division: send the rest to owner? to last investor? leave in the sc?
         uint256 lastInvestorIndex = investors.length - 1;
         uint256 totalAmountRepayment = repayment.interestAmount + repayment.principalAmount;
         uint256 totalDistributed = 0;
+        bool success;
         for (uint256 i = 0; i < lastInvestorIndex; ) {
             address investor = investors[i];
             uint256 interestAmount = (balanceOf(investor) * totalAmountRepayment) / _totalDeposited;
-            PAYMENT_TOKEN.transfer(investor, interestAmount);
+
+            success = PAYMENT_TOKEN.transfer(investor, interestAmount);
+            if(!success) {
+                revert TransferERC20Error("Error during the transfer of the funds.");
+            }
             totalDistributed += interestAmount;
             unchecked {
                 i++;
@@ -464,11 +475,11 @@ contract LoanAssetFungible is
         // last investor
         uint256 lastInterestAmount = totalAmountRepayment - totalDistributed;
         address lastInvestor = investors[lastInvestorIndex];
-        PAYMENT_TOKEN.transfer(lastInvestor, lastInterestAmount);
 
-        // only after repaying the interst to investors, we can move to the next repayment
-        currentRepaymentsIndex++;
-
+        success = PAYMENT_TOKEN.transfer(lastInvestor, lastInterestAmount);
+        if(!success) {
+            revert TransferERC20Error("Error during the transfer of the funds.");
+        }
         //TODO maybe need events?
     }
 
@@ -539,8 +550,11 @@ contract LoanAssetFungible is
 
         _numInvestorsActive--;
 
-        PAYMENT_TOKEN.transfer(msg.sender, amountToPayToInvestor);
         _burn(msg.sender, amountHold);
+        bool success = PAYMENT_TOKEN.transfer(msg.sender, amountToPayToInvestor);
+        if(!success) {
+            revert TransferERC20Error("Error during the transfer of the funds.");
+        }
     }
 
     function _executeRepayment(LoanAssetFungibleLib.RepaymentInfo storage repayment, uint256 _amount) internal {
@@ -569,7 +583,10 @@ contract LoanAssetFungible is
         borrowerOutstandingPrincipalAmount -= principalPaid;
         repayment.status = LoanAssetFungibleLib.RepaymentStatusEnum.PAID;
         // NB: needed an approve before by borrower
-        PAYMENT_TOKEN.transferFrom(msg.sender, address(this), _amount);
+        bool success = PAYMENT_TOKEN.transferFrom(msg.sender, address(this), _amount);
+        if(!success) {
+            revert TransferERC20Error("Error during the transfer of the funds.");
+        }
     }
 
      function _calculateAmountRepayment(uint256 _interestRate, uint256 _principalOutstanding, uint256 _repaymentIndex)
@@ -690,7 +707,11 @@ contract LoanAssetFungible is
         }
         investorsInfo[_from].amountDeposited += _amount;
         _totalDeposited += _amount;
-        PAYMENT_TOKEN.transferFrom(_from, address(this), _amount);
+
+        bool success = PAYMENT_TOKEN.transferFrom(_from, address(this), _amount);
+        if(!success) {
+            revert TransferERC20Error("Error during the transfer of the funds.");
+        }
 
         emit FundsDepositedEvent(_from, _amount);
     }
@@ -714,14 +735,24 @@ contract LoanAssetFungible is
 
     function _refundInvestors() internal {
         uint256 investorsLength = investors.length;
-        for(uint256 _investorIndex = 0; _investorIndex < investorsLength; ) {
-                address investor = investors[_investorIndex];
-                PAYMENT_TOKEN.transfer(investor, investorsInfo[investor].amountDeposited);
-                investorsInfo[investor].amountDeposited = 0;
+        for(uint256 investorIndex = 0; investorIndex < investorsLength; ) {
+                _refundInvestor(investorIndex);
+                
                 unchecked {
-                    _investorIndex++;
+                    investorIndex++;
                 }
         }
     }
 
+    function _refundInvestor(uint256 _investorIndex) private {
+        address investor = investors[_investorIndex];
+
+        uint256 amount = investorsInfo[investor].amountDeposited;
+        investorsInfo[investor].amountDeposited = 0;
+
+        bool success = PAYMENT_TOKEN.transfer(investor, amount);
+        if(!success) {
+            revert TransferERC20Error("Error during the transfer of the funds.");
+        }
+    }
 }
