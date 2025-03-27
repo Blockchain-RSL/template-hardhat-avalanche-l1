@@ -153,7 +153,9 @@ describe("LoanAssetFungible Contract Test: Bullet Fixed 1 Borrower 2 Investors",
             expect((await this.loanAsset.investorsInfo(owner.address)).isWhitelisted).to.be.false;
         });
         it("Owner unwhitelist investor1", async function () {
-            await this.loanAsset.connect(owner).unwhitelistInvestor(investor1.address);
+            expect(await this.loanAsset.connect(owner).unwhitelistInvestor(investor1.address))
+                .to.emit(this.loanAsset, "InvestorUnwhitelistedEvent")
+                .withArgs(investor1.address);
 
             expect((await this.loanAsset.investorsInfo(investor1.address)).isWhitelisted).to.be.false;
         });
@@ -168,7 +170,9 @@ describe("LoanAssetFungible Contract Test: Bullet Fixed 1 Borrower 2 Investors",
                 .withArgs("Investor address must be different from 0.");
         });
         it("Owner whitelist investor1", async function () {
-            await this.loanAsset.connect(owner).whitelistInvestor(investor1.address);
+            expect(await this.loanAsset.connect(owner).whitelistInvestor(investor1.address))
+                .to.emit(this.loanAsset, "InvestorWhitelistedEvent")
+                .withArgs(investor1.address);
 
             expect((await this.loanAsset.investorsInfo(investor1.address)).isWhitelisted).to.be.true;
             expect((await this.loanAsset.investorsInfo(investor2.address)).isWhitelisted).to.be.true;
@@ -236,7 +240,7 @@ describe("LoanAssetFungible Contract Test: Bullet Fixed 1 Borrower 2 Investors",
             expect(await this.paymentToken.balanceOf(this.loanAsset.target)).to.be.equal(scBalance + depositAmount);
 
             //check goals
-            await this.loanAsset.connect(owner).checkGoals();
+            expect(await this.loanAsset.connect(owner).checkGoals()).to.emit(this.loanAsset, "LoanLiveEvent");
 
             expect(await this.loanAsset.balanceOf(investor1.address)).to.be.equal(balanceLoanTokensExpectedInvestor1);
             expect(await this.loanAsset.balanceOf(investor2.address)).to.be.equal(balanceLoanTokensExpectedInvestor2);
@@ -320,7 +324,10 @@ describe("LoanAssetFungible Contract Test: Bullet Fixed 1 Borrower 2 Investors",
             let investor1Balance = await this.paymentToken.balanceOf(investor1.address);
             let investor2Balance = await this.paymentToken.balanceOf(investor2.address);
 
-            await this.loanAsset.connect(owner).distributeInterest();
+            expect(await this.loanAsset.connect(owner).distributeInterest()).to.emit(
+                this.loanAsset,
+                "InterestPaidEvent"
+            );
 
             expect(await this.loanAsset.currentRepaymentsIndex()).to.equal(1);
 
